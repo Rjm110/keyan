@@ -1,0 +1,1204 @@
+import asyncio
+
+import pytest
+from pydantic import BaseModel
+
+from cubepi.agent.tools import execute_tool_calls
+from cubepi.agent.types import (
+    AfterToolCallResult,
+    AgentContext,
+    AgentTool,
+    AgentToolResult,
+    BeforeToolCallResult,
+)
+from cubepi.providers.base import AssistantMessage, TextContent, ToolCall
+
+
+class EchoParams(BaseModel):
+    value: str
+
+
+def make_echo_tool(
+    *,
+    name: str = "echo",
+    execution_mode=None,
+    execute_fn=None,
+) -> AgentTool:
+    async def default_execute(tool_call_id, params, *, signal=None, on_update=None):
+        return AgentToolResult(content=[TextContent(text=f"echoed: {params.value}")])
+
+    return AgentTool(
+        name=name,
+        description="Echo tool",
+        parameters=EchoParams,
+        execute=execute_fn or default_execute,
+        execution_mode=execution_mode,
+    )
+
+
+def make_assistant_msg(
+    tool_calls: list[ToolCall], *, run_id: str | None = None
+) -> AssistantMessage:
+    return AssistantMessage(
+        content=tool_calls,
+        stop_reason="tool_use",
+        run_id=run_id,
+    )
+
+
+def make_context(tools: list[AgentTool]) -> AgentContext:
+    return AgentContext(system_prompt="", messages=[], tools=tools)
+
+
+class TestSequentialExecution:
+    async def test_single_tool_call(self):
+        tool = make_echo_tool()
+        ctx = make_context([tool])
+        msg = make_assistant_msg(
+            [ToolCall(id="t1", name="echo", arguments={"value": "hi"})]
+        )
+
+        events = []
+        batch = await execute_tool_calls(
+            ctx,
+            msg,
+            tool_execution="sequential",
+            emit=lambda e: events.append(e),
+        )
+
+        assert len(batch.messages) == 1
+        assert batch.messages[0].tool_call_id == "t1"
+        assert not batch.messages[0].is_error
+        assert batch.terminate is False
+
+    async def test_multiple_tool_calls_run_sequentially(self):
+        order = []
+
+        async def tracked_execute(tool_call_id, params, *, signal=None, on_update=None):
+            order.append(f"start:{params.value}")
+            await asyncio.sleep(0.01)
+            order.append(f"end:{params.value}")
+            return AgentToolResult(
+                content=[TextContent(text=f"echoed: {params.value}")]
+            )
+
+        tool = make_echo_tool(execute_fn=tracked_execute)
+        ctx = make_context([tool])
+        msg = make_assistant_msg(
+            [
+                ToolCall(id="t1", name="echo", arguments={"value": "first"}),
+                ToolCall(id="t2", name="echo", arguments={"value": "second"}),
+            ]
+        )
+
+        await execute_tool_calls(
+            ctx, msg, tool_execution="sequential", emit=lambda e: None
+        )
+
+        assert order == ["start:first", "end:first", "start:second", "end:second"]
+
+    async def test_unknown_tool_returns_error(self):
+        ctx = make_context([])
+        msg = make_assistant_msg([ToolCall(id="t1", name="unknown", arguments={})])
+
+        batch = await execute_tool_calls(
+            ctx, msg, tool_execution="sequential", emit=lambda e: None
+        )
+
+        assert len(batch.messages) == 1
+        assert batch.messages[0].is_error
+        assert "not found" in batch.messages[0].content[0].text.lower()
+
+
+class TestParallelExecution:
+    async def test_tools_run_concurrently(self):
+        first_resolved = False
+        parallel_observed = False
+        release = asyncio.Event()
+
+        async def slow_execute(tool_call_id, params, *, signal=None, on_update=None):
+            nonlocal first_resolved, parallel_observed
+            if params.value == "first":
+                await release.wait()
+                first_resolved = True
+            if params.value == "second" and not first_resolved:
+                parallel_observed = True
+            return AgentToolResult(
+                content=[TextContent(text=f"echoed: {params.value}")]
+            )
+
+        tool = make_echo_tool(execute_fn=slow_execute)
+        ctx = make_context([tool])
+        msg = make_assistant_msg(
+            [
+                ToolCall(id="t1", name="echo", arguments={"value": "first"}),
+                ToolCall(id="t2", name="echo", arguments={"value": "second"}),
+            ]
+        )
+
+        async def run():
+            await asyncio.sleep(0.02)
+            release.set()
+
+        asyncio.create_task(run())
+        batch = await execute_tool_calls(
+            ctx, msg, tool_execution="parallel", emit=lambda e: None
+        )
+
+        assert parallel_observed
+        assert len(batch.messages) == 2
+        assert batch.messages[0].tool_call_id == "t1"
+        assert batch.messages[1].tool_call_id == "t2"
+
+    async def test_parallel_produces_results_for_multiple_calls(self):
+        tool = make_echo_tool()
+        ctx = make_context([tool])
+        msg = make_assistant_msg(
+            [
+                ToolCall(id="t1", name="echo", arguments={"value": "alpha"}),
+                ToolCall(id="t2", name="echo", arguments={"value": "beta"}),
+            ]
+        )
+
+        batch = await execute_tool_calls(
+            ctx, msg, tool_execution="parallel", emit=lambda e: None
+        )
+
+        assert len(batch.messages) == 2
+        assert batch.messages[0].tool_call_id == "t1"
+        assert not batch.messages[0].is_error
+        assert "alpha" in batch.messages[0].content[0].text
+        assert batch.messages[1].tool_call_id == "t2"
+        assert not batch.messages[1].is_error
+        assert "beta" in batch.messages[1].content[0].text
+
+    async def test_parallel_with_blocked_and_normal_tool(self):
+        """One tool is blocked by before_tool_call, the other executes normally."""
+        tool = make_echo_tool()
+        ctx = make_context([tool])
+        msg = make_assistant_msg(
+            [
+                ToolCall(id="t1", name="echo", arguments={"value": "blocked_one"}),
+                ToolCall(id="t2", name="echo", arguments={"value": "allowed"}),
+            ]
+        )
+
+        async def before(ctx_arg, *, signal=None):
+            if ctx_arg.tool_call.id == "t1":
+                return BeforeToolCallResult(block=True, reason="not allowed")
+            return None
+
+        batch = await execute_tool_calls(
+            ctx,
+            msg,
+            tool_execution="parallel",
+            before_tool_call=before,
+            emit=lambda e: None,
+        )
+
+        assert len(batch.messages) == 2
+        # First tool was blocked
+        assert batch.messages[0].is_error
+        assert "not allowed" in batch.messages[0].content[0].text
+        # Second tool executed normally
+        assert not batch.messages[1].is_error
+        assert "allowed" in batch.messages[1].content[0].text
+
+    async def test_parallel_tool_execute_exception(self):
+        """Tool execution exception in parallel mode produces error result."""
+
+        async def failing_execute(tool_call_id, params, *, signal=None, on_update=None):
+            raise RuntimeError("parallel boom")
+
+        tool = make_echo_tool(execute_fn=failing_execute)
+        ctx = make_context([tool])
+        msg = make_assistant_msg(
+            [ToolCall(id="t1", name="echo", arguments={"value": "hi"})]
+        )
+
+        batch = await execute_tool_calls(
+            ctx, msg, tool_execution="parallel", emit=lambda e: None
+        )
+
+        assert len(batch.messages) == 1
+        assert batch.messages[0].is_error
+        assert "parallel boom" in batch.messages[0].content[0].text
+
+    async def test_sequential_tool_forces_sequential_mode(self):
+        order = []
+
+        async def tracked(tool_call_id, params, *, signal=None, on_update=None):
+            order.append(f"start:{params.value}")
+            await asyncio.sleep(0.01)
+            order.append(f"end:{params.value}")
+            return AgentToolResult(content=[TextContent(text="ok")])
+
+        tool = make_echo_tool(execute_fn=tracked, execution_mode="sequential")
+        ctx = make_context([tool])
+        msg = make_assistant_msg(
+            [
+                ToolCall(id="t1", name="echo", arguments={"value": "a"}),
+                ToolCall(id="t2", name="echo", arguments={"value": "b"}),
+            ]
+        )
+
+        await execute_tool_calls(
+            ctx, msg, tool_execution="parallel", emit=lambda e: None
+        )
+
+        assert order[0] == "start:a"
+        assert order[1] == "end:a"
+
+
+class TestBeforeToolCall:
+    async def test_block_prevents_execution(self):
+        tool = make_echo_tool()
+        ctx = make_context([tool])
+        msg = make_assistant_msg(
+            [ToolCall(id="t1", name="echo", arguments={"value": "hi"})]
+        )
+
+        async def before(ctx_arg, *, signal=None):
+            return BeforeToolCallResult(block=True, reason="Blocked by test")
+
+        batch = await execute_tool_calls(
+            ctx,
+            msg,
+            tool_execution="sequential",
+            before_tool_call=before,
+            emit=lambda e: None,
+        )
+
+        assert len(batch.messages) == 1
+        assert batch.messages[0].is_error
+        assert "Blocked by test" in batch.messages[0].content[0].text
+
+    async def test_before_tool_call_exception_returns_error(self):
+        tool = make_echo_tool()
+        ctx = make_context([tool])
+        msg = make_assistant_msg(
+            [ToolCall(id="t1", name="echo", arguments={"value": "hi"})]
+        )
+
+        async def before(ctx_arg, *, signal=None):
+            raise RuntimeError("hook exploded")
+
+        batch = await execute_tool_calls(
+            ctx,
+            msg,
+            tool_execution="sequential",
+            before_tool_call=before,
+            emit=lambda e: None,
+        )
+
+        assert len(batch.messages) == 1
+        assert batch.messages[0].is_error
+        assert "hook exploded" in batch.messages[0].content[0].text
+
+
+class TestAfterToolCall:
+    async def test_override_result(self):
+        tool = make_echo_tool()
+        ctx = make_context([tool])
+        msg = make_assistant_msg(
+            [ToolCall(id="t1", name="echo", arguments={"value": "hi"})]
+        )
+
+        async def after(ctx_arg, *, signal=None):
+            return AfterToolCallResult(
+                content=[TextContent(text="overridden")],
+                terminate=True,
+            )
+
+        batch = await execute_tool_calls(
+            ctx,
+            msg,
+            tool_execution="sequential",
+            after_tool_call=after,
+            emit=lambda e: None,
+        )
+
+        assert batch.messages[0].content[0].text == "overridden"
+        assert batch.terminate is True
+
+    async def test_after_tool_call_exception_returns_error(self):
+        tool = make_echo_tool()
+        ctx = make_context([tool])
+        msg = make_assistant_msg(
+            [ToolCall(id="t1", name="echo", arguments={"value": "hi"})]
+        )
+
+        async def after(ctx_arg, *, signal=None):
+            raise RuntimeError("after hook failed")
+
+        batch = await execute_tool_calls(
+            ctx,
+            msg,
+            tool_execution="sequential",
+            after_tool_call=after,
+            emit=lambda e: None,
+        )
+
+        assert len(batch.messages) == 1
+        assert batch.messages[0].is_error
+        assert "after hook failed" in batch.messages[0].content[0].text
+
+
+class TestToolExecutionError:
+    async def test_tool_execute_exception_returns_error(self):
+        async def failing_execute(tool_call_id, params, *, signal=None, on_update=None):
+            raise RuntimeError("execution boom")
+
+        tool = make_echo_tool(execute_fn=failing_execute)
+        ctx = make_context([tool])
+        msg = make_assistant_msg(
+            [ToolCall(id="t1", name="echo", arguments={"value": "hi"})]
+        )
+
+        batch = await execute_tool_calls(
+            ctx, msg, tool_execution="sequential", emit=lambda e: None
+        )
+
+        assert len(batch.messages) == 1
+        assert batch.messages[0].is_error
+        assert "execution boom" in batch.messages[0].content[0].text
+
+    async def test_invalid_parameters_returns_error(self):
+        tool = make_echo_tool()
+        ctx = make_context([tool])
+        # EchoParams requires a 'value' string; passing wrong type triggers validation error
+        msg = make_assistant_msg(
+            [ToolCall(id="t1", name="echo", arguments={"wrong_key": 123})]
+        )
+
+        batch = await execute_tool_calls(
+            ctx, msg, tool_execution="sequential", emit=lambda e: None
+        )
+
+        assert len(batch.messages) == 1
+        assert batch.messages[0].is_error
+
+
+class TestValidationErrorFormatting:
+    """Pin the contract that ValidationError text is model-friendly.
+
+    A raw str(ValidationError) names pydantic's internal model class and
+    points at the pydantic docs site, which the LLM cannot act on. The
+    formatter must produce field-path-anchored lines the model can use to
+    self-correct without a second round-trip.
+    """
+
+    async def test_missing_required_field_names_the_field(self):
+        tool = make_echo_tool()
+        ctx = make_context([tool])
+        msg = make_assistant_msg([ToolCall(id="t1", name="echo", arguments={})])
+
+        batch = await execute_tool_calls(
+            ctx, msg, tool_execution="sequential", emit=lambda e: None
+        )
+
+        text = batch.messages[0].content[0].text
+        assert "Invalid arguments for tool 'echo'" in text
+        assert "value" in text
+        assert "field required" in text
+        # Raw pydantic decoration must NOT leak to the model.
+        assert "errors.pydantic.dev" not in text
+        assert "validation error" not in text.lower()[: len("validation error")] or (
+            "validation error" not in text.lower().split("\n")[0]
+        )
+
+    async def test_discriminator_failure_lists_allowed_tags(self):
+        from typing import Annotated, Literal, Union
+
+        from pydantic import Field, RootModel
+
+        class ListOp(BaseModel):
+            operation: Literal["list"]
+
+        class CreateOp(BaseModel):
+            operation: Literal["create"]
+            name: str
+
+        union_type = Annotated[
+            Union[ListOp, CreateOp],
+            Field(discriminator="operation"),
+        ]
+        union_root = RootModel[union_type]
+
+        async def execute_fn(tool_call_id, params, *, signal=None, on_update=None):
+            return AgentToolResult(content=[TextContent(text="ok")])
+
+        tool = AgentTool(
+            name="opt",
+            description="discriminated tool",
+            parameters=union_root,
+            execute=execute_fn,
+        )
+        ctx = make_context([tool])
+
+        msg = make_assistant_msg(
+            [ToolCall(id="t1", name="opt", arguments={"operation": "delete"})]
+        )
+
+        batch = await execute_tool_calls(
+            ctx, msg, tool_execution="sequential", emit=lambda e: None
+        )
+
+        text = batch.messages[0].content[0].text
+        assert "discriminator" in text
+        # Allowed tags must be enumerated so the model can self-correct.
+        assert "list" in text
+        assert "create" in text
+
+    async def test_missing_discriminator_key_is_named(self):
+        from typing import Annotated, Literal, Union
+
+        from pydantic import Field, RootModel
+
+        class ListOp(BaseModel):
+            operation: Literal["list"]
+
+        class CreateOp(BaseModel):
+            operation: Literal["create"]
+            name: str
+
+        union_type = Annotated[
+            Union[ListOp, CreateOp],
+            Field(discriminator="operation"),
+        ]
+        union_root = RootModel[union_type]
+
+        async def execute_fn(tool_call_id, params, *, signal=None, on_update=None):
+            return AgentToolResult(content=[TextContent(text="ok")])
+
+        tool = AgentTool(
+            name="opt",
+            description="discriminated tool",
+            parameters=union_root,
+            execute=execute_fn,
+        )
+        ctx = make_context([tool])
+
+        # Wrong top-level key — pydantic raises union_tag_not_found.
+        # That error type does not carry expected_tags in its ctx, but the
+        # error must still name the discriminator key so the model can find
+        # it in the tool's JSON Schema and self-correct.
+        msg = make_assistant_msg(
+            [ToolCall(id="t1", name="opt", arguments={"action": "list"})]
+        )
+
+        batch = await execute_tool_calls(
+            ctx, msg, tool_execution="sequential", emit=lambda e: None
+        )
+
+        text = batch.messages[0].content[0].text
+        assert "missing required discriminator key 'operation'" in text
+        # Surrounding quotes from pydantic's ctx must be stripped.
+        assert "''operation''" not in text
+
+    async def test_literal_error_lists_allowed_values(self):
+        from typing import Literal
+
+        from pydantic import BaseModel
+
+        class LiteralParams(BaseModel):
+            mode: Literal["fast", "slow"]
+
+        async def execute_fn(tool_call_id, params, *, signal=None, on_update=None):
+            return AgentToolResult(content=[TextContent(text="ok")])
+
+        tool = AgentTool(
+            name="lit",
+            description="literal tool",
+            parameters=LiteralParams,
+            execute=execute_fn,
+        )
+        ctx = make_context([tool])
+
+        msg = make_assistant_msg(
+            [ToolCall(id="t1", name="lit", arguments={"mode": "medium"})]
+        )
+
+        batch = await execute_tool_calls(
+            ctx, msg, tool_execution="sequential", emit=lambda e: None
+        )
+
+        text = batch.messages[0].content[0].text
+        assert "mode" in text
+        assert "must be one of" in text
+        # The allowed values must be enumerated so the model can self-correct.
+        assert "fast" in text
+        assert "slow" in text
+
+    async def test_extra_forbidden_names_the_unexpected_field(self):
+        from pydantic import BaseModel, ConfigDict
+
+        class StrictParams(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+            value: str
+
+        async def execute_fn(tool_call_id, params, *, signal=None, on_update=None):
+            return AgentToolResult(content=[TextContent(text="ok")])
+
+        tool = AgentTool(
+            name="strict",
+            description="strict tool",
+            parameters=StrictParams,
+            execute=execute_fn,
+        )
+        ctx = make_context([tool])
+
+        msg = make_assistant_msg(
+            [
+                ToolCall(
+                    id="t1",
+                    name="strict",
+                    arguments={"value": "hi", "stray_key": 1},
+                )
+            ]
+        )
+
+        batch = await execute_tool_calls(
+            ctx, msg, tool_execution="sequential", emit=lambda e: None
+        )
+
+        text = batch.messages[0].content[0].text
+        assert "stray_key" in text
+        assert "unexpected field" in text
+
+
+class TestTermination:
+    async def test_all_terminate_stops_loop(self):
+        async def term_execute(tool_call_id, params, *, signal=None, on_update=None):
+            return AgentToolResult(content=[TextContent(text="done")], terminate=True)
+
+        tool = make_echo_tool(execute_fn=term_execute)
+        ctx = make_context([tool])
+        msg = make_assistant_msg(
+            [ToolCall(id="t1", name="echo", arguments={"value": "a"})]
+        )
+
+        batch = await execute_tool_calls(
+            ctx, msg, tool_execution="sequential", emit=lambda e: None
+        )
+        assert batch.terminate is True
+
+    async def test_partial_terminate_continues(self):
+        async def maybe_term(tool_call_id, params, *, signal=None, on_update=None):
+            return AgentToolResult(
+                content=[TextContent(text="done")],
+                terminate=(params.value == "first"),
+            )
+
+        tool = make_echo_tool(execute_fn=maybe_term)
+        ctx = make_context([tool])
+        msg = make_assistant_msg(
+            [
+                ToolCall(id="t1", name="echo", arguments={"value": "first"}),
+                ToolCall(id="t2", name="echo", arguments={"value": "second"}),
+            ]
+        )
+
+        batch = await execute_tool_calls(
+            ctx, msg, tool_execution="parallel", emit=lambda e: None
+        )
+        assert batch.terminate is False
+
+
+class TestToolEvents:
+    async def test_emits_execution_lifecycle_events(self):
+        tool = make_echo_tool()
+        ctx = make_context([tool])
+        msg = make_assistant_msg(
+            [ToolCall(id="t1", name="echo", arguments={"value": "hi"})]
+        )
+
+        events = []
+        await execute_tool_calls(
+            ctx,
+            msg,
+            tool_execution="sequential",
+            emit=lambda e: events.append(e),
+        )
+
+        types = [e.type for e in events]
+        assert "tool_execution_start" in types
+        assert "tool_execution_end" in types
+        start_idx = types.index("tool_execution_start")
+        end_idx = types.index("tool_execution_end")
+        assert start_idx < end_idx
+
+
+class TestToolResultRunId:
+    async def test_parallel_outcomes_inherit_assistant_run_id_before_emission(self):
+        async def fail_execute(tool_call_id, params, *, signal=None, on_update=None):
+            raise RuntimeError("tool failed")
+
+        async def before(before_ctx, *, signal=None):
+            if before_ctx.tool_call.id == "t5":
+                return BeforeToolCallResult(
+                    block=True,
+                    reason="blocked by policy",
+                    hitl_trace={"request_id": "approval-1"},
+                )
+            if before_ctx.tool_call.id == "t6":
+                raise RuntimeError("hook failed")
+            return None
+
+        ctx = make_context(
+            [
+                make_echo_tool(),
+                make_echo_tool(name="fail", execute_fn=fail_execute),
+            ]
+        )
+        msg = make_assistant_msg(
+            [
+                ToolCall(id="t1", name="echo", arguments={"value": "ok"}),
+                ToolCall(id="t2", name="echo", arguments={}),
+                ToolCall(id="t3", name="missing", arguments={}),
+                ToolCall(id="t4", name="fail", arguments={"value": "boom"}),
+                ToolCall(id="t5", name="echo", arguments={"value": "blocked"}),
+                ToolCall(id="t6", name="echo", arguments={"value": "hook"}),
+            ],
+            run_id="R-tools",
+        )
+        events = []
+
+        batch = await execute_tool_calls(
+            ctx,
+            msg,
+            tool_execution="parallel",
+            before_tool_call=before,
+            emit=lambda event: events.append(event),
+        )
+
+        assert [message.tool_call_id for message in batch.messages] == [
+            "t1",
+            "t2",
+            "t3",
+            "t4",
+            "t5",
+            "t6",
+        ]
+        assert [message.run_id for message in batch.messages] == ["R-tools"] * 6
+        assert [message.is_error for message in batch.messages] == [
+            False,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ]
+        by_id = {message.tool_call_id: message for message in batch.messages}
+        assert by_id["t1"].content[0].text == "echoed: ok"
+        assert "field required" in by_id["t2"].content[0].text
+        assert "not found" in by_id["t3"].content[0].text
+        assert "tool failed" in by_id["t4"].content[0].text
+        assert by_id["t5"].content[0].text == "blocked by policy"
+        assert by_id["t5"].details == {"hitl": {"request_id": "approval-1"}}
+        assert by_id["t6"].content[0].text == "hook failed"
+
+        message_events = [
+            event for event in events if event.type in ("message_start", "message_end")
+        ]
+        assert [
+            (event.type, event.message.tool_call_id, event.message.run_id)
+            for event in message_events
+        ] == [
+            (event_type, tool_call_id, "R-tools")
+            for tool_call_id in ("t1", "t2", "t3", "t4", "t5", "t6")
+            for event_type in ("message_start", "message_end")
+        ]
+
+    async def test_sequential_multiple_results_inherit_assistant_run_id(self):
+        ctx = make_context([make_echo_tool()])
+        msg = make_assistant_msg(
+            [
+                ToolCall(id="t1", name="echo", arguments={"value": "first"}),
+                ToolCall(id="t2", name="echo", arguments={"value": "second"}),
+            ],
+            run_id="R-sequential",
+        )
+        events = []
+
+        batch = await execute_tool_calls(
+            ctx,
+            msg,
+            tool_execution="sequential",
+            emit=lambda event: events.append(event),
+        )
+
+        assert [message.run_id for message in batch.messages] == [
+            "R-sequential",
+            "R-sequential",
+        ]
+        message_events = [
+            event for event in events if event.type in ("message_start", "message_end")
+        ]
+        assert [event.message.run_id for event in message_events] == [
+            "R-sequential"
+        ] * 4
+
+    @pytest.mark.parametrize("tool_execution", ["parallel", "sequential"])
+    async def test_unstamped_assistant_does_not_fabricate_run_id(self, tool_execution):
+        ctx = make_context([make_echo_tool()])
+        msg = make_assistant_msg(
+            [
+                ToolCall(id="t1", name="echo", arguments={"value": "first"}),
+                ToolCall(id="t2", name="echo", arguments={"value": "second"}),
+            ]
+        )
+        events = []
+
+        batch = await execute_tool_calls(
+            ctx,
+            msg,
+            tool_execution=tool_execution,
+            emit=lambda event: events.append(event),
+        )
+
+        assert [message.run_id for message in batch.messages] == [None, None]
+        message_events = [
+            event for event in events if event.type in ("message_start", "message_end")
+        ]
+        assert all(event.message.run_id is None for event in message_events)
+
+
+class TestToolResultDetails:
+    async def test_details_propagated_to_tool_result_message(self):
+        async def execute_with_details(
+            tool_call_id, params, *, signal=None, on_update=None
+        ):
+            return AgentToolResult(
+                content=[TextContent(text="result")],
+                details={"execution_time": 42},
+            )
+
+        tool = make_echo_tool(execute_fn=execute_with_details)
+        ctx = make_context([tool])
+        msg = make_assistant_msg(
+            [ToolCall(id="t1", name="echo", arguments={"value": "hi"})]
+        )
+
+        batch = await execute_tool_calls(
+            ctx, msg, tool_execution="sequential", emit=lambda e: None
+        )
+
+        assert len(batch.messages) == 1
+        assert batch.messages[0].details == {"execution_time": 42}
+
+
+class TestParallelFaultIsolation:
+    """One failing tool in a parallel batch must never drop sibling results,
+    leak running sibling tasks, or leave dangling tool_calls."""
+
+    @staticmethod
+    def _three_call_msg():
+        return make_assistant_msg(
+            [
+                ToolCall(id="t1", name="a", arguments={"value": "x"}),
+                ToolCall(id="t2", name="b", arguments={"value": "x"}),
+                ToolCall(id="t3", name="c", arguments={"value": "x"}),
+            ]
+        )
+
+    async def test_hitl_raise_preserves_and_persists_sibling_results(self):
+        from cubepi.hitl.exceptions import HitlDetached
+
+        side_effects = []
+
+        async def fast_ok(tool_call_id, params, *, signal=None, on_update=None):
+            side_effects.append("fast")
+            return AgentToolResult(content=[TextContent(text="fast-ok")])
+
+        async def hitl_raiser(tool_call_id, params, *, signal=None, on_update=None):
+            await asyncio.sleep(0.01)
+            raise HitlDetached()
+
+        async def slow_ok(tool_call_id, params, *, signal=None, on_update=None):
+            # Still running when the HITL exception fires — the batch must
+            # wait for it (no detached task, no lost side effect).
+            await asyncio.sleep(0.05)
+            side_effects.append("slow")
+            return AgentToolResult(content=[TextContent(text="slow-ok")])
+
+        ctx = make_context(
+            [
+                make_echo_tool(name="a", execute_fn=fast_ok),
+                make_echo_tool(name="b", execute_fn=hitl_raiser),
+                make_echo_tool(name="c", execute_fn=slow_ok),
+            ]
+        )
+        events = []
+        with pytest.raises(HitlDetached) as excinfo:
+            await execute_tool_calls(
+                ctx,
+                self._three_call_msg(),
+                tool_execution="parallel",
+                emit=lambda e: events.append(e),
+            )
+
+        # Persisted sibling results ride on the exception so the stateless
+        # loop entry points can return them to their callers.
+        assert [m.tool_call_id for m in excinfo.value.partial_tool_results] == [
+            "t1",
+            "t3",
+        ]
+
+        # Every sibling settled before the re-raise; nothing leaked.
+        assert side_effects == ["fast", "slow"]
+        pending = [
+            t
+            for t in asyncio.all_tasks()
+            if t is not asyncio.current_task() and not t.done()
+        ]
+        assert pending == []
+
+        # Sibling ToolResultMessages were emitted (message_end checkpoints
+        # them at the Agent layer); the HITL call stays unanswered.
+        result_ids = [e.message.tool_call_id for e in events if e.type == "message_end"]
+        assert result_ids == ["t1", "t3"]
+        end_ids = [e.tool_call_id for e in events if e.type == "tool_execution_end"]
+        assert "t2" not in end_ids  # detach shape: Start without End
+
+    async def test_tool_body_base_exception_becomes_error_result(self):
+        class Weird(BaseException):
+            pass
+
+        async def raiser(tool_call_id, params, *, signal=None, on_update=None):
+            raise Weird("weird failure")
+
+        async def ok(tool_call_id, params, *, signal=None, on_update=None):
+            return AgentToolResult(content=[TextContent(text="ok")])
+
+        ctx = make_context(
+            [
+                make_echo_tool(name="a", execute_fn=ok),
+                make_echo_tool(name="b", execute_fn=raiser),
+                make_echo_tool(name="c", execute_fn=ok),
+            ]
+        )
+        batch = await execute_tool_calls(
+            ctx, self._three_call_msg(), tool_execution="parallel", emit=lambda e: None
+        )
+        assert [m.tool_call_id for m in batch.messages] == ["t1", "t2", "t3"]
+        by_id = {m.tool_call_id: m for m in batch.messages}
+        assert by_id["t2"].is_error
+        assert "weird failure" in by_id["t2"].content[0].text
+        assert not by_id["t1"].is_error
+        assert not by_id["t3"].is_error
+
+    async def test_after_tool_call_base_exception_isolated(self):
+        class Weird(BaseException):
+            pass
+
+        async def after(after_ctx, *, signal=None):
+            if after_ctx.tool_call.id == "t2":
+                raise Weird("hook blew up")
+            return None
+
+        ctx = make_context(
+            [
+                make_echo_tool(name="a"),
+                make_echo_tool(name="b"),
+                make_echo_tool(name="c"),
+            ]
+        )
+        for mode in ("parallel", "sequential"):
+            batch = await execute_tool_calls(
+                ctx,
+                self._three_call_msg(),
+                tool_execution=mode,
+                after_tool_call=after,
+                emit=lambda e: None,
+            )
+            by_id = {m.tool_call_id: m for m in batch.messages}
+            assert len(by_id) == 3, mode
+            assert by_id["t2"].is_error, mode
+            assert "hook blew up" in by_id["t2"].content[0].text
+            assert not by_id["t1"].is_error
+            assert not by_id["t3"].is_error
+
+    async def test_tool_self_cancel_becomes_error_result(self):
+        async def self_cancel(tool_call_id, params, *, signal=None, on_update=None):
+            raise asyncio.CancelledError()
+
+        async def ok(tool_call_id, params, *, signal=None, on_update=None):
+            return AgentToolResult(content=[TextContent(text="ok")])
+
+        ctx = make_context(
+            [
+                make_echo_tool(name="a", execute_fn=ok),
+                make_echo_tool(name="b", execute_fn=self_cancel),
+                make_echo_tool(name="c", execute_fn=ok),
+            ]
+        )
+        events = []
+        batch = await execute_tool_calls(
+            ctx,
+            self._three_call_msg(),
+            tool_execution="parallel",
+            emit=lambda e: events.append(e),
+        )
+        by_id = {m.tool_call_id: m for m in batch.messages}
+        assert len(by_id) == 3
+        assert by_id["t2"].is_error
+        assert "[Tool execution cancelled]" in by_id["t2"].content[0].text
+        # The synthesized outcome still pairs the Start emitted inside the
+        # task, so pending_tool_calls / trace spans don't leak.
+        starts = [e.tool_call_id for e in events if e.type == "tool_execution_start"]
+        ends = [e.tool_call_id for e in events if e.type == "tool_execution_end"]
+        assert sorted(starts) == sorted(ends) == ["t1", "t2", "t3"]
+
+    async def test_outer_cancel_salvages_completed_results(self):
+        started = asyncio.Event()
+        cancelled_flags = []
+
+        async def fast_ok(tool_call_id, params, *, signal=None, on_update=None):
+            return AgentToolResult(content=[TextContent(text="fast-ok")])
+
+        async def hang(tool_call_id, params, *, signal=None, on_update=None):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled_flags.append(tool_call_id)
+                raise
+            return AgentToolResult(content=[TextContent(text="unreachable")])
+
+        ctx = make_context(
+            [
+                make_echo_tool(name="a", execute_fn=fast_ok),
+                make_echo_tool(name="b", execute_fn=hang),
+                make_echo_tool(name="c", execute_fn=hang),
+            ]
+        )
+        events = []
+        runner = asyncio.create_task(
+            execute_tool_calls(
+                ctx,
+                self._three_call_msg(),
+                tool_execution="parallel",
+                emit=lambda e: events.append(e),
+            )
+        )
+        await started.wait()
+        await asyncio.sleep(0.02)  # let fast_ok finish
+        runner.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await runner
+
+        # Hanging siblings were cancelled, not leaked.
+        assert sorted(cancelled_flags) == ["t2", "t3"]
+        # The completed tool's real result was salvaged and emitted before
+        # the re-raise; the cancelled ones stay unanswered for the Agent
+        # layer's backfill.
+        result_ids = [e.message.tool_call_id for e in events if e.type == "message_end"]
+        assert result_ids == ["t1"]
+
+
+class TestFaultIsolationEdgeCases:
+    """Cover the defensive branches of the fault-isolation machinery."""
+
+    @staticmethod
+    def _two_call_msg():
+        return make_assistant_msg(
+            [
+                ToolCall(id="t1", name="a", arguments={"value": "x"}),
+                ToolCall(id="t2", name="b", arguments={"value": "x"}),
+            ]
+        )
+
+    async def test_after_tool_call_hitl_propagates_with_siblings_persisted(self):
+        """_finalize must re-raise HITL control exceptions from the hook —
+        they are a suspend, not a tool failure — after siblings persist."""
+        from cubepi.hitl.exceptions import HitlDetached
+
+        async def after(after_ctx, *, signal=None):
+            if after_ctx.tool_call.id == "t2":
+                raise HitlDetached()
+            return None
+
+        ctx = make_context([make_echo_tool(name="a"), make_echo_tool(name="b")])
+        events = []
+        with pytest.raises(HitlDetached):
+            await execute_tool_calls(
+                ctx,
+                self._two_call_msg(),
+                tool_execution="parallel",
+                after_tool_call=after,
+                emit=lambda e: events.append(e),
+            )
+        result_ids = [e.message.tool_call_id for e in events if e.type == "message_end"]
+        assert result_ids == ["t1"]
+
+    async def test_hitl_sibling_persistence_failure_propagates(self):
+        """Suspending after a sibling result failed to persist would durably
+        record a batch missing completed work — the persistence failure must
+        win over the suspend."""
+        from cubepi.hitl.exceptions import HitlDetached
+
+        async def hitl_raiser(tool_call_id, params, *, signal=None, on_update=None):
+            raise HitlDetached()
+
+        def flaky_emit(event):
+            if event.type == "message_start":
+                raise RuntimeError("checkpointer rejected the append")
+
+        ctx = make_context(
+            [
+                make_echo_tool(name="a"),
+                make_echo_tool(name="b", execute_fn=hitl_raiser),
+            ]
+        )
+        with pytest.raises(RuntimeError, match="checkpointer rejected"):
+            await execute_tool_calls(
+                ctx,
+                self._two_call_msg(),
+                tool_execution="parallel",
+                emit=flaky_emit,
+            )
+
+    async def test_worker_emit_failure_propagates_after_settle(self):
+        """emit_fn failures inside a worker are framework-side, not tool
+        failures: no bogus tool_result is synthesized, the exception
+        propagates — but only after every sibling has settled."""
+        side_effects = []
+
+        async def slow_ok(tool_call_id, params, *, signal=None, on_update=None):
+            await asyncio.sleep(0.03)
+            side_effects.append("slow settled")
+            return AgentToolResult(content=[TextContent(text="ok")])
+
+        def flaky_emit(event):
+            if event.type == "tool_execution_end" and event.tool_call_id == "t1":
+                raise RuntimeError("listener blew up")
+
+        ctx = make_context(
+            [
+                make_echo_tool(name="a"),
+                make_echo_tool(name="b", execute_fn=slow_ok),
+            ]
+        )
+        with pytest.raises(RuntimeError, match="listener blew up"):
+            await execute_tool_calls(
+                ctx,
+                self._two_call_msg(),
+                tool_execution="parallel",
+                emit=flaky_emit,
+            )
+        assert side_effects == ["slow settled"]
+
+    async def test_sequential_hitl_carries_partial_results(self):
+        """The sequential executor attaches already-emitted results to an
+        escaping HITL control exception too."""
+        from cubepi.hitl.exceptions import HitlDetached
+
+        async def hitl_raiser(tool_call_id, params, *, signal=None, on_update=None):
+            raise HitlDetached()
+
+        ctx = make_context(
+            [
+                make_echo_tool(name="a"),
+                make_echo_tool(name="b", execute_fn=hitl_raiser),
+            ]
+        )
+        with pytest.raises(HitlDetached) as excinfo:
+            await execute_tool_calls(
+                ctx,
+                self._two_call_msg(),
+                tool_execution="sequential",
+                emit=lambda e: None,
+            )
+        assert [m.tool_call_id for m in excinfo.value.partial_tool_results] == ["t1"]
+
+    async def test_cancel_reraise_survives_emit_failure(self):
+        """Same best-effort contract on the outer-cancel salvage path."""
+        started = asyncio.Event()
+
+        async def fast_ok(tool_call_id, params, *, signal=None, on_update=None):
+            return AgentToolResult(content=[TextContent(text="ok")])
+
+        async def hang(tool_call_id, params, *, signal=None, on_update=None):
+            started.set()
+            await asyncio.Event().wait()
+
+        def flaky_emit(event):
+            if event.type == "message_start":
+                raise RuntimeError("listener blew up")
+
+        ctx = make_context(
+            [
+                make_echo_tool(name="a", execute_fn=fast_ok),
+                make_echo_tool(name="b", execute_fn=hang),
+            ]
+        )
+        runner = asyncio.create_task(
+            execute_tool_calls(
+                ctx,
+                self._two_call_msg(),
+                tool_execution="parallel",
+                emit=flaky_emit,
+            )
+        )
+        await started.wait()
+        await asyncio.sleep(0.02)
+        runner.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await runner
+
+    async def test_cancel_reraise_survives_emit_cancelled_error(self):
+        """A second cancel landing during salvage emission re-raises cleanly."""
+        started = asyncio.Event()
+
+        async def fast_ok(tool_call_id, params, *, signal=None, on_update=None):
+            return AgentToolResult(content=[TextContent(text="ok")])
+
+        async def hang(tool_call_id, params, *, signal=None, on_update=None):
+            started.set()
+            await asyncio.Event().wait()
+
+        def cancelling_emit(event):
+            if event.type == "message_start":
+                raise asyncio.CancelledError()
+
+        ctx = make_context(
+            [
+                make_echo_tool(name="a", execute_fn=fast_ok),
+                make_echo_tool(name="b", execute_fn=hang),
+            ]
+        )
+        runner = asyncio.create_task(
+            execute_tool_calls(
+                ctx,
+                self._two_call_msg(),
+                tool_execution="parallel",
+                emit=cancelling_emit,
+            )
+        )
+        await started.wait()
+        await asyncio.sleep(0.02)
+        runner.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await runner
+
+
+class TestBeforeToolCallEditedArgs:
+    async def test_edited_args_revalidated_and_used(self):
+        async def before(before_ctx, *, signal=None):
+            return BeforeToolCallResult(edited_args={"value": "rewritten"})
+
+        ctx = make_context([make_echo_tool()])
+        msg = make_assistant_msg(
+            [ToolCall(id="t1", name="echo", arguments={"value": "original"})]
+        )
+        batch = await execute_tool_calls(
+            ctx,
+            msg,
+            tool_execution="sequential",
+            before_tool_call=before,
+            emit=lambda e: None,
+        )
+        assert len(batch.messages) == 1
+        assert not batch.messages[0].is_error
+        assert "rewritten" in batch.messages[0].content[0].text

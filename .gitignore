@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+
+# Testing / coverage
+.coverage
+.pytest_cache/
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+.claude/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docusaurus
+website/.docusaurus/
+website/build/
+website/node_modules/
+website/package-lock.json
+website/docs/api/*.mdx
+!website/docs/api/index.mdx
+
+# Playwright CLI session artifacts
+.playwright-cli/
+
+# Marketing drafts (local only)
+dev/marketing/
+
+# 本地应用数据（科研助手）
+workspace/
+chat.db
+.cubepi-backups/
+*.db
+*.db.bak
+*.sqlite
+*.sqlite3
+
+
+.worktrees/
