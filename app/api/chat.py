@@ -5,6 +5,7 @@ SSE 事件转换逻辑从 server.py 迁移至此。
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import AsyncIterator, Literal
 
@@ -123,28 +124,15 @@ def create_chat_router(chat_service: ChatService) -> APIRouter:
         except RuntimeError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-        async def event_generator() -> AsyncIterator[dict]:
-            try:
-                while True:
-                    event = await queue.get()
-                    if event is None:
-                        break
-                    sse = _event_to_sse_dict(event)
-                    if sse["event"] != "ignore":
-                        yield sse
-                    # agent 结束（done）后关闭 SSE 流，否则浏览器 fetch 永不结束
-                    if sse["event"] == "done":
-                        break
-            finally:
-                await task
-
-        return EventSourceResponse(event_generator())
+        return EventSourceResponse(_event_generator(queue, task))
 
     @router.post("/{conversation_id}/respond")
-    async def respond(project_id: str, conversation_id: str, body: RespondBody) -> dict:
+    async def respond(
+        project_id: str, conversation_id: str, body: RespondBody
+    ) -> EventSourceResponse:
         """回答 HITL 确认请求，恢复 agent 执行。"""
         try:
-            await chat_service.respond(
+            queue, task = await chat_service.respond(
                 user_id=_current_user_id(),
                 project_id=project_id,
                 conversation_id=conversation_id,
@@ -159,7 +147,7 @@ def create_chat_router(chat_service: ChatService) -> APIRouter:
             raise HTTPException(status_code=404, detail="no pending request")
         except HitlStaleAnswer:
             raise HTTPException(status_code=409, detail="stale answer")
-        return {"status": "ok"}
+        return EventSourceResponse(_event_generator(queue, task))
 
     @router.post("/{conversation_id}/abort")
     async def abort_run(project_id: str, conversation_id: str) -> dict:
@@ -198,3 +186,19 @@ def create_chat_router(chat_service: ChatService) -> APIRouter:
         return {"messages": messages}
 
     return router
+
+
+async def _event_generator(queue: asyncio.Queue, task: asyncio.Task) -> AsyncIterator[dict]:
+    """将一次 Agent 运行的事件转发为 SSE，包含 HITL 恢复阶段。"""
+    try:
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+            sse = _event_to_sse_dict(event)
+            if sse["event"] != "ignore":
+                yield sse
+            if sse["event"] in {"done", "suspended", "aborted"}:
+                break
+    finally:
+        await task

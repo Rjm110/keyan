@@ -111,13 +111,14 @@ async def test_respond_recovers_run_id(app_config: AppConfig, monkeypatch):
         assert run_id is not None, "pending 必须记录 run_id"
 
         # 3. respond：不显式传 run_id，验证 service 内部恢复
-        await service.respond(
+        resumed_queue, resumed_task = await service.respond(
             user_id,
             project_id,
             conversation_id,
             question_id=req.question_id,
             decision="approve",
         )
+        await resumed_task
         await task
 
         # 4. 工具已执行（approve 生效）

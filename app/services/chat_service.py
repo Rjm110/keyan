@@ -13,7 +13,7 @@ import uuid
 from typing import Any, Literal
 
 from cubepi.checkpointer.base import Checkpointer
-from cubepi.hitl import ApproveAnswer, HitlNoPendingRequest, HitlStaleAnswer
+from cubepi.hitl import ApproveAnswer
 
 from app.agent_factory import build_agent
 from app.config import AppConfig, build_model
@@ -139,7 +139,7 @@ class ChatService:
         decision: Literal["approve", "deny", "edit"],
         reason: str | None = None,
         edited_args: dict | None = None,
-    ) -> None:
+    ) -> tuple[asyncio.Queue, asyncio.Task]:
         """回答 HITL 确认请求，恢复 agent 执行。
 
         关键：必须先从 checkpointer 恢复 pending 的 run_id 并传给
@@ -162,12 +162,12 @@ class ChatService:
             reason=reason,
             edited_args=edited_args,
         )
-        try:
-            await agent.respond(question_id=question_id, answer=answer)
-        except HitlNoPendingRequest:
-            raise
-        except HitlStaleAnswer:
-            raise
+        queue: asyncio.Queue = asyncio.Queue()
+        agent.subscribe(lambda event, signal=None: queue.put_nowait(event))
+        task = asyncio.create_task(
+            agent.respond(question_id=question_id, answer=answer)
+        )
+        return queue, task
 
     async def abort(self, user_id: str, project_id: str, conversation_id: str) -> None:
         """中止当前 run / 关闭 pending 请求。"""

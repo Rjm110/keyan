@@ -17,7 +17,13 @@ from cubepi.agent.types import AgentContext
 from cubepi.checkpointer.base import Checkpointer
 from cubepi.hitl import ConfirmToolCallMiddleware, ask_user_tool
 from cubepi.hitl.channel import CheckpointedChannel
-from cubepi.providers.base import AssistantMessage, BoundModel, Message
+from cubepi.providers.base import (
+    AssistantMessage,
+    BoundModel,
+    Message,
+    ToolResultMessage,
+    ToolCall,
+)
 
 from app.config import AppConfig
 from app.system_prompt import build_system_prompt
@@ -37,15 +43,54 @@ def _convert_to_llm(messages: list[Message], *, ctx: AgentContext) -> list[Messa
     这里在发给模型前过滤掉它们。
     """
     del ctx
-    return [
-        m
-        for m in messages
-        if not (
-            isinstance(m, AssistantMessage)
-            and m.stop_reason == "error"
-            and not m.content
-        )
-    ]
+    cleaned: list[Message] = []
+    index = 0
+    while index < len(messages):
+        message = messages[index]
+        if (
+            isinstance(message, AssistantMessage)
+            and message.stop_reason == "error"
+            and not message.content
+        ):
+            index += 1
+            continue
+
+        if isinstance(message, AssistantMessage):
+            tool_calls = [c for c in message.content if isinstance(c, ToolCall)]
+            if tool_calls:
+                next_messages = messages[index + 1 : index + 1 + len(tool_calls)]
+                expected = [c.id for c in tool_calls]
+                actual = [
+                    m.tool_call_id
+                    for m in next_messages
+                    if isinstance(m, ToolResultMessage)
+                ]
+                if len(next_messages) != len(tool_calls) or actual != expected:
+                    # An interrupted/HITL-aborted run can persist only the
+                    # assistant tool call. Never send that invalid cycle to a
+                    # strict OpenAI-compatible API.
+                    index += 1
+                    while index < len(messages) and isinstance(
+                        messages[index], ToolResultMessage
+                    ):
+                        index += 1
+                    continue
+
+        if isinstance(message, ToolResultMessage) and (
+            not cleaned
+            or not isinstance(cleaned[-1], AssistantMessage)
+            or not any(
+                isinstance(c, ToolCall) and c.id == message.tool_call_id
+                for c in cleaned[-1].content
+            )
+        ):
+            index += 1
+            continue
+
+        cleaned.append(message)
+        index += 1
+
+    return cleaned
 
 
 def build_agent(
