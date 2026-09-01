@@ -9,7 +9,7 @@ from typing import Any, AsyncIterator, cast
 import aiosqlite
 from pydantic import TypeAdapter
 
-from cubepi.checkpointer.base import CheckpointData
+from cubepi.checkpointer.base import CheckpointData, ThreadSummary
 from cubepi.checkpointer.exceptions import (
     CheckpointCorruptionError,
     CheckpointerLockTimeoutError,
@@ -518,6 +518,73 @@ class SQLiteCheckpointer:
                 "parent_thread_id) VALUES (?, ?, ?)",
                 (new_thread_id, json.dumps(merged_extra), src_thread_id),
             )
+
+    async def list_threads(self) -> list[ThreadSummary]:
+        """列出所有会话（thread）摘要，按更新时间倒序。
+
+        title 来自 thread_extra.extra_json["title"]；
+        updated_at 取该 thread 最新一条消息的 created_at（无消息时为 0）。
+        """
+        assert self._db is not None
+        async with self._lock:
+            # 所有 thread_id（messages ∪ thread_extra）
+            cur = await self._db.execute(
+                "SELECT DISTINCT thread_id FROM messages "
+                "UNION SELECT thread_id FROM thread_extra"
+            )
+            rows = await cur.fetchall()
+            summaries: list[ThreadSummary] = []
+            for (thread_id,) in rows:
+                # 标题
+                extra_cursor = await self._db.execute(
+                    "SELECT extra_json FROM thread_extra WHERE thread_id = ?",
+                    (thread_id,),
+                )
+                extra_row = await extra_cursor.fetchone()
+                title = ""
+                if extra_row:
+                    extra = json.loads(extra_row[0])
+                    title = extra.get("title", "")
+                # 消息数与更新时间
+                msg_cursor = await self._db.execute(
+                    "SELECT COUNT(*), MAX(created_at) FROM messages "
+                    "WHERE thread_id = ?",
+                    (thread_id,),
+                )
+                msg_row = await msg_cursor.fetchone()
+                count = msg_row[0] if msg_row else 0
+                updated_at = (msg_row[1] if msg_row else None) or 0.0
+                summaries.append(
+                    ThreadSummary(
+                        thread_id=thread_id,
+                        title=title,
+                        message_count=count,
+                        updated_at=updated_at,
+                    )
+                )
+            summaries.sort(key=lambda s: s.updated_at, reverse=True)
+            return summaries
+
+    async def delete_thread(self, thread_id: str) -> None:
+        """删除一个会话（thread）及其全部数据。
+
+        清理 messages / thread_extra / thread_pending_request /
+        thread_hitl_answers / runs 中该 thread 的所有行。幂等。
+        """
+        assert self._db is not None
+        async with self._lock:
+            async with _writer_txn(self._db):
+                for table in (
+                    "messages",
+                    "thread_extra",
+                    "thread_pending_request",
+                    "thread_hitl_answers",
+                    "runs",
+                ):
+                    await self._db.execute(
+                        f"DELETE FROM {table} WHERE thread_id = ?",
+                        (thread_id,),
+                    )
 
 
 def _serialize_message(msg: Any) -> str:

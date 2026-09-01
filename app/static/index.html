@@ -24,53 +24,143 @@
   }
   /* 侧栏 */
   .sidebar {
-    width: 280px; background: var(--panel); border-right: 1px solid var(--border);
-    display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0;
+    width: 240px; background: var(--panel); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;
   }
   .sidebar h2 {
     font-size: 14px; color: var(--muted); padding: 16px 16px 8px;
     text-transform: uppercase; letter-spacing: 0.5px;
   }
-  .sidebar .item { padding: 6px 16px; font-size: 13px; color: var(--text); }
-  .sidebar .item .tag {
-    display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 4px;
-    margin-right: 6px; color: #fff;
-  }
-  .sidebar .item .tag.dir { background: var(--accent-dim); }
-  .sidebar .item .tag.file { background: #3a4152; }
-  .sidebar .item .tag.pdf { background: #7c3aed; }
   .sidebar .empty { padding: 6px 16px; font-size: 12px; color: var(--muted); }
-  .sidebar .hint { padding: 12px 16px; font-size: 12px; color: var(--muted); line-height: 1.6; border-top: 1px solid var(--border); margin-top: auto; }
-  .sidebar .hint code { background: #232838; padding: 1px 5px; border-radius: 4px; }
 
-  /* 模型配置卡片 */
-  .config-card {
-    padding: 0 16px 12px; display: flex; flex-direction: column; gap: 8px;
+  /* 项目区块：紧凑列表，独立滚动 */
+  .proj-section {
+    flex-shrink: 0; max-height: 40%; display: flex; flex-direction: column;
     border-bottom: 1px solid var(--border);
   }
-  .config-card select, .config-card input {
+  .proj-header { padding: 0 16px 8px; display: flex; gap: 6px; }
+  .proj-header button {
+    flex: 1; background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 7px 0; font-size: 12px; cursor: pointer; font-weight: 600;
+  }
+  .proj-header button:hover { background: #5f97ff; }
+  #projects-list { overflow-y: auto; padding-bottom: 8px; }
+  #projects-list::-webkit-scrollbar { width: 6px; }
+  #projects-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .proj-item {
+    padding: 7px 16px; font-size: 13px; color: var(--text); cursor: pointer;
+    display: flex; align-items: center; gap: 8px; border-left: 3px solid transparent;
+    position: relative;
+  }
+  .proj-item:hover { background: #1d2130; }
+  .proj-item.active { background: #1d2130; border-left-color: var(--accent); }
+  .proj-item .proj-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .proj-item .proj-count { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+  .proj-item .proj-actions { display: none; flex-shrink: 0; gap: 2px; }
+  .proj-item:hover .proj-actions { display: flex; }
+  .proj-item .proj-actions button {
+    width: 20px; height: 20px; border: none; background: transparent; color: var(--muted);
+    font-size: 12px; line-height: 1; cursor: pointer; border-radius: 4px; padding: 0;
+  }
+  .proj-item .proj-actions button:hover { background: var(--accent-dim); color: #fff; }
+  .proj-item .proj-actions button.del:hover { background: var(--err); color: #fff; }
+
+  /* 会话区块：独立滚动，占满侧栏剩余空间 */
+  .conv-section {
+    flex: 1; min-height: 0; display: flex; flex-direction: column;
+    overflow-y: auto;
+  }
+  .conv-section::-webkit-scrollbar { width: 6px; }
+  .conv-section::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .conv-header { padding: 0 16px 8px; }
+  .conv-header button {
+    width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 8px 0; font-size: 13px; cursor: pointer; font-weight: 600;
+  }
+  .conv-header button:hover { background: #5f97ff; }
+  /* 会话列表 */
+  #conversations-list {
+    padding-bottom: 8px; flex-shrink: 0;
+  }
+  #conversations-list::-webkit-scrollbar { width: 6px; }
+  #conversations-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .conv-item {
+    padding: 8px 16px; font-size: 13px; color: var(--text); cursor: pointer;
+    display: flex; align-items: center; gap: 8px; border-left: 3px solid transparent;
+    position: relative;
+  }
+  .conv-item:hover { background: #1d2130; }
+  .conv-item.active { background: #1d2130; border-left-color: var(--accent); }
+  .conv-item .conv-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conv-item .conv-count { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+  /* 删除按钮：hover 时显示 */
+  .conv-item .conv-del {
+    display: none; flex-shrink: 0; width: 20px; height: 20px; border: none;
+    background: transparent; color: var(--muted); font-size: 14px; line-height: 1;
+    cursor: pointer; border-radius: 4px; padding: 0;
+  }
+  .conv-item .conv-del:hover { background: var(--err); color: #fff; }
+  .conv-item:hover .conv-del { display: block; }
+
+  /* 模型配置弹窗表单 */
+  .config-form { display: flex; flex-direction: column; gap: 12px; }
+  .config-form select, .config-form input {
     width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
     border-radius: 8px; padding: 8px 10px; font-size: 13px; outline: none; font-family: inherit;
   }
-  .config-card select:focus, .config-card input:focus { border-color: var(--accent); }
-  .config-card button {
+  .config-form select:focus, .config-form input:focus { border-color: var(--accent); }
+  .config-form .cfg-status { font-size: 12px; color: var(--muted); min-height: 16px; line-height: 1.5; }
+  .config-form .cfg-status.ok { color: var(--ok); }
+  .config-form .cfg-status.err { color: var(--err); }
+  .config-form .cfg-save-btn {
     background: var(--accent); color: #fff; border: none; border-radius: 8px;
-    padding: 8px 0; font-size: 13px; cursor: pointer; font-weight: 600;
+    padding: 9px 0; font-size: 13px; cursor: pointer; font-weight: 600;
   }
-  .config-card button:disabled { background: var(--accent-dim); cursor: not-allowed; }
-  .config-card .cfg-status { font-size: 12px; color: var(--muted); min-height: 16px; line-height: 1.5; }
-  .config-card .cfg-status.ok { color: var(--ok); }
-  .config-card .cfg-status.err { color: var(--err); }
+  .config-form .cfg-save-btn:disabled { background: var(--accent-dim); cursor: not-allowed; }
 
   /* 主区域 */
   .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  .header {
-    padding: 14px 20px; border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; gap: 12px;
+  /* 顶部栏：模型徽章 + 标签页 */
+  .topbar {
+    padding: 10px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 16px; flex-shrink: 0;
   }
-  .header h1 { font-size: 16px; font-weight: 600; }
-  .header .status { font-size: 12px; color: var(--muted); }
-  .header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); display: inline-block; margin-right: 6px; }
+  .topbar .brand { font-size: 15px; font-weight: 600; margin-right: 8px; }
+  .topbar .status { font-size: 12px; color: var(--muted); }
+  .topbar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); display: inline-block; margin-right: 6px; }
+  /* 模型徽章按钮 */
+  .model-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: #1d2130; border: 1px solid var(--border); color: var(--text);
+    border-radius: 999px; padding: 6px 14px; font-size: 12px; cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .model-badge:hover { border-color: var(--accent); }
+  .model-badge .badge-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .model-badge .badge-dot.unconfigured { background: var(--warn); }
+  .model-badge .badge-name { font-weight: 600; }
+  .model-badge .badge-key { color: var(--muted); }
+  /* 标签页 */
+  .tabs { display: flex; gap: 4px; margin-left: auto; }
+  .tab {
+    background: transparent; border: none; color: var(--muted); font-size: 13px;
+    padding: 7px 14px; border-radius: 8px; cursor: pointer; font-weight: 500;
+  }
+  .tab:hover { background: #1d2130; color: var(--text); }
+  .tab.active { background: var(--accent-dim); color: #fff; }
+  /* 面板切换 */
+  .panel { display: none; flex: 1; min-height: 0; flex-direction: column; }
+  .panel.active { display: flex; }
+  .panel-scroll { flex: 1; overflow-y: auto; padding: 20px; }
+  .panel-scroll .item { padding: 6px 0; font-size: 13px; color: var(--text); }
+  .panel-scroll .item .tag {
+    display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 4px;
+    margin-right: 6px; color: #fff;
+  }
+  .panel-scroll .item .tag.dir { background: var(--accent-dim); }
+  .panel-scroll .item .tag.file { background: #3a4152; }
+  .panel-scroll .item .tag.pdf { background: #7c3aed; }
+  .panel-scroll .empty { padding: 6px 0; font-size: 12px; color: var(--muted); }
 
   #messages {
     flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px;
@@ -125,6 +215,36 @@
   .modal .reason-input { width: 100%; margin-top: 8px; background: #0d1017; border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 8px; font-size: 13px; display: none; }
   .modal .reason-input.show { display: block; }
 
+  /* 通用输入/确认弹窗（替代原生 prompt/confirm） */
+  .modal-sm { width: 420px; }
+  .modal .text-input {
+    width: 100%; background: #0d1017; border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 10px 12px; font-size: 14px; box-sizing: border-box;
+  }
+  .modal .text-input:focus { outline: none; border-color: var(--accent); }
+  .modal .confirm-msg { font-size: 13px; line-height: 1.7; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+
+  /* 目录选择器 */
+  .browse-path {
+    background: #0d1017; border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 12px; color: var(--muted); word-break: break-all;
+    font-family: monospace;
+  }
+  .browse-list {
+    max-height: 260px; overflow-y: auto; border: 1px solid var(--border);
+    border-radius: 8px; background: #0d1017;
+  }
+  .browse-item {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+    cursor: pointer; font-size: 13px; border-bottom: 1px solid var(--border);
+  }
+  .browse-item:last-child { border-bottom: none; }
+  .browse-item:hover { background: #1a2030; }
+  .browse-item .browse-icon { color: var(--accent); }
+  .browse-item .browse-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .browse-item .browse-path-text { color: var(--muted); font-size: 11px; font-family: monospace; }
+  .browse-up { color: var(--muted); font-style: italic; }
+
   /* 提问表单弹窗 */
   .ask-form .q { margin-bottom: 14px; }
   .ask-form .q .q-prompt { font-size: 13px; margin-bottom: 6px; }
@@ -142,40 +262,99 @@
 </head>
 <body>
 
-<!-- 侧栏 -->
+<!-- 侧栏：项目列表 + 当前项目会话列表 -->
 <aside class="sidebar">
-  <h2>⚙️ 模型配置</h2>
-  <div class="config-card">
-    <select id="cfg-provider">
-      <option value="">选择大模型厂商…</option>
-    </select>
-    <input type="password" id="cfg-api-key" placeholder="输入 API Key" autocomplete="off">
-    <input type="text" id="cfg-model" placeholder="模型名（可选，默认用厂商默认）">
-    <input type="text" id="cfg-base-url" placeholder="Base URL（可选，默认官方地址）">
-    <button id="cfg-save">保存配置</button>
-    <div class="cfg-status" id="cfg-status"></div>
+  <div class="proj-section">
+    <h2>📁 项目</h2>
+    <div class="proj-header">
+      <button id="proj-new">＋ 添加项目</button>
+    </div>
+    <div id="projects-list"><div class="empty">加载中…</div></div>
   </div>
-  <h2>📄 论文</h2>
-  <div id="papers-list"><div class="empty">加载中…</div></div>
-  <h2>📁 Baseline 代码</h2>
-  <div id="baseline-list"><div class="empty">加载中…</div></div>
-  <div class="hint">
-    论文 PDF 放在 <code>workspace/papers/</code>，baseline 代码在
-    <code>workspace/baseline/</code>（可用环境变量 <code>CUBEPI_PAPERS_DIR</code> /
-    <code>CUBEPI_BASELINE_DIR</code> 修改）。
+  <div class="conv-section">
+    <h2>💬 会话</h2>
+    <div class="conv-header">
+      <button id="conv-new">＋ 新建会话</button>
+    </div>
+    <div id="conversations-list"><div class="empty">加载中…</div></div>
   </div>
 </aside>
 
 <!-- 主区域 -->
 <div class="main">
-  <div class="header">
-    <h1>🔬 科研助手</h1>
+  <!-- 顶部栏：模型徽章 + 标签页 -->
+  <div class="topbar">
+    <span class="brand">🔬 科研助手</span>
+    <button class="model-badge" id="model-badge" title="点击配置模型">
+      <span class="badge-dot" id="badge-dot"></span>
+      <span class="badge-name" id="badge-name">未配置</span>
+      <span class="badge-key" id="badge-key"></span>
+    </button>
     <span class="status"><span class="dot"></span>就绪</span>
+    <div class="tabs">
+      <button class="tab active" data-tab="chat">💬 对话</button>
+      <button class="tab" data-tab="papers">📄 论文</button>
+      <button class="tab" data-tab="code">📁 代码</button>
+    </div>
   </div>
-  <div id="messages"></div>
-  <div class="input-area">
-    <textarea id="input" placeholder="描述你的需求，例如：阅读论文 A 的方法部分，把其中的 XX 技术应用到 baseline 的 model.py 中…"></textarea>
-    <button id="send">发送</button>
+
+  <!-- 对话面板 -->
+  <div class="panel active" id="panel-chat">
+    <div id="messages"></div>
+    <div class="input-area">
+      <textarea id="input" placeholder="描述你的需求，例如：阅读论文 A 的方法部分，把其中的 XX 技术应用到 baseline 的 model.py 中…"></textarea>
+      <button id="send">发送</button>
+    </div>
+  </div>
+
+  <!-- 论文面板 -->
+  <div class="panel" id="panel-papers">
+    <div class="panel-scroll">
+      <h2 style="font-size:14px;color:var(--muted);margin-bottom:8px;">📄 论文</h2>
+      <div id="papers-list"><div class="empty">加载中…</div></div>
+    </div>
+  </div>
+
+  <!-- 代码面板 -->
+  <div class="panel" id="panel-code">
+    <div class="panel-scroll">
+      <h2 style="font-size:14px;color:var(--muted);margin-bottom:8px;">📁 Baseline 代码</h2>
+      <div id="baseline-list"><div class="empty">加载中…</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- 模型配置弹窗 -->
+<div class="modal-overlay" id="config-modal">
+  <div class="modal">
+    <div class="modal-header">⚙️ 模型配置</div>
+    <div class="modal-body">
+      <div class="config-form">
+        <div class="field">
+          <label>大模型厂商</label>
+          <select id="cfg-provider">
+            <option value="">选择大模型厂商…</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>API Key</label>
+          <input type="password" id="cfg-api-key" placeholder="输入 API Key" autocomplete="off">
+        </div>
+        <div class="field">
+          <label>模型名（可选，默认用厂商默认）</label>
+          <input type="text" id="cfg-model" placeholder="模型名">
+        </div>
+        <div class="field">
+          <label>Base URL（可选，默认官方地址）</label>
+          <input type="text" id="cfg-base-url" placeholder="Base URL">
+        </div>
+        <button class="cfg-save-btn" id="cfg-save">保存配置</button>
+        <div class="cfg-status" id="cfg-status"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="cfg-close">关闭</button>
+    </div>
   </div>
 </div>
 
@@ -207,8 +386,59 @@
   </div>
 </div>
 
+<!-- 通用输入弹窗（替代原生 prompt） -->
+<div class="modal-overlay" id="input-modal">
+  <div class="modal modal-sm">
+    <div class="modal-header" id="input-modal-title">输入</div>
+    <div class="modal-body">
+      <input class="text-input" id="input-modal-value" autocomplete="off">
+    </div>
+    <div class="modal-footer">
+      <button id="input-modal-cancel">取消</button>
+      <button id="input-modal-ok" class="approve">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 通用确认弹窗（替代原生 confirm） -->
+<div class="modal-overlay" id="confirm2-modal">
+  <div class="modal modal-sm">
+    <div class="modal-header" id="confirm2-title">确认</div>
+    <div class="modal-body">
+      <div class="confirm-msg" id="confirm2-msg"></div>
+    </div>
+    <div class="modal-footer">
+      <button id="confirm2-cancel">取消</button>
+      <button id="confirm2-ok" class="deny">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 目录选择器弹窗（"我的电脑"式） -->
+<div class="modal-overlay" id="browse-modal">
+  <div class="modal">
+    <div class="modal-header">📁 选择项目目录</div>
+    <div class="modal-body">
+      <div class="field">
+        <label>项目名称</label>
+        <input class="text-input" id="browse-name" placeholder="给这个项目起个名字" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>当前目录</label>
+        <div class="browse-path" id="browse-path"></div>
+      </div>
+      <div class="browse-list" id="browse-list"><div class="empty">加载中…</div></div>
+    </div>
+    <div class="modal-footer">
+      <button id="browse-cancel">取消</button>
+      <button id="browse-ok" class="approve">添加此目录</button>
+    </div>
+  </div>
+</div>
+
 <script>
-const conversationId = "default";
+let projectId = null;      // 当前项目 ID
+let conversationId = null; // 当前会话 ID
 let busy = false;
 let pendingHitl = null;   // {question_id, kind, ...}
 let pendingAsk = null;    // {question_id, questions}
@@ -240,19 +470,96 @@ function addTyping() {
   return div;
 }
 
+// ---------- 通用 prompt/confirm（替代原生，兼容 WebView） ----------
+let _inputResolve = null;
+let _confirmResolve = null;
+
+function showInputModal(title, defaultValue) {
+  return new Promise(resolve => {
+    _inputResolve = resolve;
+    $("#input-modal-title").textContent = title;
+    $("#input-modal-value").value = defaultValue || "";
+    $("#input-modal").classList.add("show");
+    $("#input-modal-value").focus();
+    $("#input-modal-value").select();
+  });
+}
+function hideInputModal() { $("#input-modal").classList.remove("show"); }
+
+function showConfirmModal(title, message) {
+  return new Promise(resolve => {
+    _confirmResolve = resolve;
+    $("#confirm2-title").textContent = title;
+    $("#confirm2-msg").textContent = message;
+    $("#confirm2-modal").classList.add("show");
+  });
+}
+function hideConfirmModal() { $("#confirm2-modal").classList.remove("show"); }
+
+$("#input-modal-ok").addEventListener("click", () => {
+  const v = $("#input-modal-value").value;
+  const r = _inputResolve;
+  _inputResolve = null;
+  hideInputModal();
+  if (r) r(v);
+});
+$("#input-modal-cancel").addEventListener("click", () => {
+  const r = _inputResolve;
+  _inputResolve = null;
+  hideInputModal();
+  if (r) r(null);
+});
+$("#input-modal").addEventListener("click", e => {
+  if (e.target === $("#input-modal")) {
+    const r = _inputResolve;
+    _inputResolve = null;
+    hideInputModal();
+    if (r) r(null);
+  }
+});
+$("#input-modal-value").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); $("#input-modal-ok").click(); }
+  if (e.key === "Escape") { e.preventDefault(); $("#input-modal-cancel").click(); }
+});
+
+$("#confirm2-ok").addEventListener("click", () => {
+  const r = _confirmResolve;
+  _confirmResolve = null;
+  hideConfirmModal();
+  if (r) r(true);
+});
+$("#confirm2-cancel").addEventListener("click", () => {
+  const r = _confirmResolve;
+  _confirmResolve = null;
+  hideConfirmModal();
+  if (r) r(false);
+});
+$("#confirm2-modal").addEventListener("click", e => {
+  if (e.target === $("#confirm2-modal")) {
+    const r = _confirmResolve;
+    _confirmResolve = null;
+    hideConfirmModal();
+    if (r) r(false);
+  }
+});
+
 // ---------- 模型配置 ----------
+const PROVIDER_NAMES = {};  // id -> 显示名（loadConfig 时填充）
+
 async function loadConfig() {
   try {
     const data = await (await fetch("/config")).json();
     const sel = $("#cfg-provider");
     sel.innerHTML = '<option value="">选择大模型厂商…</option>';
     data.providers.forEach(p => {
+      PROVIDER_NAMES[p.id] = p.name;
       const opt = document.createElement("option");
       opt.value = p.id;
       opt.textContent = p.name;
       sel.appendChild(opt);
     });
     const cur = data.current;
+    updateModelBadge(cur);
     if (cur.configured) {
       sel.value = cur.provider || "";
       $("#cfg-model").value = cur.model || "";
@@ -269,6 +576,36 @@ async function loadConfig() {
     console.error("load config failed", e);
   }
 }
+
+// 更新顶部模型徽章
+function updateModelBadge(cur) {
+  const dot = $("#badge-dot");
+  const name = $("#badge-name");
+  const key = $("#badge-key");
+  if (cur.configured) {
+    dot.classList.remove("unconfigured");
+    name.textContent = PROVIDER_NAMES[cur.provider] || cur.provider;
+    key.textContent = cur.api_key_masked ? `(${cur.api_key_masked})` : "";
+  } else {
+    dot.classList.add("unconfigured");
+    name.textContent = "未配置";
+    key.textContent = "";
+  }
+}
+
+// 打开/关闭配置弹窗
+function openConfigModal() {
+  $("#config-modal").classList.add("show");
+  $("#cfg-api-key").value = "";
+  $("#cfg-api-key").focus();
+}
+function closeConfigModal() { $("#config-modal").classList.remove("show"); }
+
+$("#model-badge").addEventListener("click", openConfigModal);
+$("#cfg-close").addEventListener("click", closeConfigModal);
+$("#config-modal").addEventListener("click", e => {
+  if (e.target === $("#config-modal")) closeConfigModal();
+});
 
 $("#cfg-save").addEventListener("click", async () => {
   const provider = $("#cfg-provider").value;
@@ -303,8 +640,11 @@ $("#cfg-save").addEventListener("click", async () => {
       return;
     }
     $("#cfg-api-key").value = "";
-    st.textContent = `✅ 已保存：${provider}`;
+    st.textContent = `✅ 已保存：${provider}（已持久化，重启不丢失）`;
     st.className = "cfg-status ok";
+    // 更新徽章 + 关闭弹窗
+    await loadConfig();
+    setTimeout(closeConfigModal, 800);
     addMsg("assistant", `✅ 已配置大模型：${provider}，现在可以开始对话了。`, "tool");
   } catch (e) {
     st.textContent = `保存失败：${e.message}`;
@@ -314,8 +654,325 @@ $("#cfg-save").addEventListener("click", async () => {
   }
 });
 
-// ---------- 侧栏加载 ----------
-async function loadSidebar() {
+// ---------- 目录选择器（"我的电脑"式） ----------
+let _browseResolve = null;
+let _browseCurrent = null;
+
+function openBrowseModal() {
+  return new Promise(resolve => {
+    _browseResolve = resolve;
+    $("#browse-name").value = "";
+    $("#browse-modal").classList.add("show");
+    browseGo(null);
+    $("#browse-name").focus();
+  });
+}
+function closeBrowseModal() { $("#browse-modal").classList.remove("show"); }
+
+async function browseGo(path) {
+  try {
+    const url = path ? `/projects/browse?path=${encodeURIComponent(path)}` : "/projects/browse";
+    const data = await (await fetch(url)).json();
+    _browseCurrent = data.path;
+    $("#browse-path").textContent = data.path;
+    const list = $("#browse-list");
+    list.innerHTML = "";
+    if (data.parent) {
+      const up = document.createElement("div");
+      up.className = "browse-item browse-up";
+      up.innerHTML = `<span class="browse-icon">⬆️</span><span class="browse-name">..（上级目录）</span>`;
+      up.addEventListener("click", () => browseGo(data.parent));
+      list.appendChild(up);
+    }
+    if (!data.entries.length) {
+      list.innerHTML = '<div class="empty">（空目录）</div>';
+    }
+    data.entries.forEach(e => {
+      const d = document.createElement("div");
+      d.className = "browse-item";
+      d.innerHTML = `<span class="browse-icon">📁</span><span class="browse-name">${e.name}</span><span class="browse-path-text">${e.path}</span>`;
+      d.addEventListener("click", () => browseGo(e.path));
+      list.appendChild(d);
+    });
+  } catch (e) {
+    $("#browse-list").innerHTML = `<div class="empty">加载失败：${e.message}</div>`;
+  }
+}
+
+$("#browse-cancel").addEventListener("click", () => {
+  const r = _browseResolve;
+  _browseResolve = null;
+  closeBrowseModal();
+  if (r) r(null);
+});
+$("#browse-modal").addEventListener("click", e => {
+  if (e.target === $("#browse-modal")) {
+    const r = _browseResolve;
+    _browseResolve = null;
+    closeBrowseModal();
+    if (r) r(null);
+  }
+});
+$("#browse-ok").addEventListener("click", () => {
+  const r = _browseResolve;
+  _browseResolve = null;
+  closeBrowseModal();
+  if (r) r({ name: $("#browse-name").value.trim(), path: _browseCurrent });
+});
+
+// ---------- 项目管理 ----------
+async function loadProjects() {
+  try {
+    const data = await (await fetch("/projects")).json();
+    const list = $("#projects-list");
+    list.innerHTML = "";
+    if (!data.projects.length) {
+      list.innerHTML = '<div class="empty">暂无项目</div>';
+      return;
+    }
+    data.projects.forEach(p => {
+      const d = document.createElement("div");
+      d.className = "proj-item" + (p.id === projectId ? " active" : "");
+      d.dataset.id = p.id;
+      const name = document.createElement("span");
+      name.className = "proj-name";
+      name.textContent = p.name;
+      name.title = p.path || "";
+      const actions = document.createElement("span");
+      actions.className = "proj-actions";
+      const renameBtn = document.createElement("button");
+      renameBtn.title = "重命名";
+      renameBtn.textContent = "✎";
+      renameBtn.addEventListener("click", e => {
+        e.stopPropagation();
+        renameProject(p.id, p.name);
+      });
+      const delBtn = document.createElement("button");
+      delBtn.title = "删除项目";
+      delBtn.className = "del";
+      delBtn.textContent = "✕";
+      delBtn.addEventListener("click", e => {
+        e.stopPropagation();
+        deleteProject(p.id, p.name);
+      });
+      actions.appendChild(renameBtn);
+      actions.appendChild(delBtn);
+      d.appendChild(name);
+      d.appendChild(actions);
+      d.addEventListener("click", () => switchProject(p.id));
+      list.appendChild(d);
+    });
+  } catch (e) {
+    console.error("load projects failed", e);
+  }
+}
+
+async function switchProject(id) {
+  if (busy) return;
+  if (id === projectId) return;
+  projectId = id;
+  conversationId = null;
+  // 高亮当前项目
+  document.querySelectorAll(".proj-item").forEach(el => {
+    el.classList.toggle("active", el.dataset.id === id);
+  });
+  // 清空消息区 + 刷新会话列表 + 代码面板
+  $("#messages").innerHTML = "";
+  await loadConversations();
+  await loadBaseline();
+  $("#input").focus();
+}
+
+async function newProject() {
+  if (busy) return;
+  // 目录选择器：浏览真实目录，鼠标选择
+  const sel = await openBrowseModal();
+  if (!sel || !sel.path) return;
+  if (!sel.name) {
+    addMsg("assistant", "请填写项目名称", "error");
+    return;
+  }
+  try {
+    const resp = await fetch("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: sel.name, path: sel.path }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      addMsg("assistant", `添加项目失败：${err.detail || resp.status}`, "error");
+      return;
+    }
+    const data = await resp.json();
+    await loadProjects();
+    await switchProject(data.project.id);
+  } catch (e) {
+    addMsg("assistant", `添加项目失败：${e.message}`, "error");
+  }
+}
+
+async function renameProject(id, oldName) {
+  if (busy) return;
+  const name = await showInputModal("重命名项目", oldName);
+  if (!name || !name.trim() || name.trim() === oldName) return;
+  try {
+    const resp = await fetch(`/projects/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      addMsg("assistant", `重命名失败：${err.detail || resp.status}`, "error");
+      return;
+    }
+    await loadProjects();
+  } catch (e) {
+    addMsg("assistant", `重命名失败：${e.message}`, "error");
+  }
+}
+
+async function deleteProject(id, name) {
+  if (busy) return;
+  const ok = await showConfirmModal(
+    `移除项目「${name}」？`,
+    `只移除项目记录和会话，磁盘上的代码目录不会被删除。`
+  );
+  if (!ok) return;
+  try {
+    const resp = await fetch(`/projects/${id}`, { method: "DELETE" });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      addMsg("assistant", `删除项目失败：${err.detail || resp.status}`, "error");
+      return;
+    }
+    // 若删除的是当前项目，切到第一个剩余项目（或新建）
+    if (id === projectId) {
+      projectId = null;
+      const data = await (await fetch("/projects")).json();
+      await loadProjects();  // 刷新项目列表（移除已删除项）
+      if (data.projects.length) {
+        await switchProject(data.projects[0].id);
+      } else {
+        await newProject();
+      }
+    } else {
+      await loadProjects();
+    }
+  } catch (e) {
+    addMsg("assistant", `删除项目失败：${e.message}`, "error");
+  }
+}
+
+$("#proj-new").addEventListener("click", newProject);
+
+// ---------- 会话管理 ----------
+async function loadConversations() {
+  if (!projectId) return;
+  try {
+    const data = await (await fetch(`/projects/${projectId}/conversations`)).json();
+    const list = $("#conversations-list");
+    list.innerHTML = "";
+    if (!data.conversations.length) {
+      list.innerHTML = '<div class="empty">暂无会话，点击上方新建</div>';
+      return;
+    }
+    data.conversations.forEach(c => {
+      const d = document.createElement("div");
+      d.className = "conv-item" + (c.id === conversationId ? " active" : "");
+      d.dataset.id = c.id;
+      const title = document.createElement("span");
+      title.className = "conv-title";
+      title.textContent = c.title || "新会话";
+      const count = document.createElement("span");
+      count.className = "conv-count";
+      count.textContent = c.message_count ? `${c.message_count} 条` : "";
+      const del = document.createElement("button");
+      del.className = "conv-del";
+      del.title = "删除会话";
+      del.textContent = "✕";
+      del.addEventListener("click", e => {
+        e.stopPropagation();
+        deleteConversation(c.id);
+      });
+      d.appendChild(title);
+      d.appendChild(count);
+      d.appendChild(del);
+      d.addEventListener("click", () => switchConversation(c.id));
+      list.appendChild(d);
+    });
+  } catch (e) {
+    console.error("load conversations failed", e);
+  }
+}
+
+async function deleteConversation(id) {
+  if (busy) return;
+  const ok = await showConfirmModal(
+    `删除会话？`,
+    `确定删除会话「${id}」吗？此操作不可恢复。`
+  );
+  if (!ok) return;
+  try {
+    const resp = await fetch(`/projects/${projectId}/conversations/${id}`, { method: "DELETE" });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      addMsg("assistant", `删除会话失败：${err.detail || resp.status}`, "error");
+      return;
+    }
+    // 若删除的是当前会话，切到第一个剩余会话（或新建）
+    if (id === conversationId) {
+      conversationId = null;  // 强制切换
+      const data = await (await fetch(`/projects/${projectId}/conversations`)).json();
+      if (data.conversations.length) {
+        await switchConversation(data.conversations[0].id);
+      } else {
+        await newConversation();
+      }
+    } else {
+      await loadConversations();
+    }
+  } catch (e) {
+    addMsg("assistant", `删除会话失败：${e.message}`, "error");
+  }
+}
+
+async function switchConversation(id) {
+  if (busy) return;
+  if (id === conversationId) return;
+  conversationId = id;
+  // 高亮当前项
+  document.querySelectorAll(".conv-item").forEach(el => {
+    el.classList.toggle("active", el.dataset.id === id);
+  });
+  await loadHistory();
+}
+
+async function newConversation() {
+  if (busy) return;
+  if (!projectId) return;
+  try {
+    const resp = await fetch(`/projects/${projectId}/conversations`, { method: "POST" });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      addMsg("assistant", `新建会话失败：${err.detail || resp.status}`, "error");
+      return;
+    }
+    const data = await resp.json();
+    conversationId = data.conversation.id;
+    // 清空消息区并刷新列表
+    $("#messages").innerHTML = "";
+    await loadConversations();
+    $("#input").focus();
+  } catch (e) {
+    addMsg("assistant", `新建会话失败：${e.message}`, "error");
+  }
+}
+
+$("#conv-new").addEventListener("click", newConversation);
+
+// ---------- 论文 / Baseline 加载 ----------
+async function loadPapers() {
   try {
     const papers = await (await fetch("/papers")).json();
     const pl = $("#papers-list");
@@ -327,7 +984,15 @@ async function loadSidebar() {
       d.innerHTML = `<span class="tag pdf">PDF</span>${p}`;
       pl.appendChild(d);
     });
-    const tree = await (await fetch("/baseline/tree")).json();
+  } catch (e) {
+    console.error("load papers failed", e);
+  }
+}
+
+async function loadBaseline() {
+  if (!projectId) return;
+  try {
+    const tree = await (await fetch(`/projects/${projectId}/baseline/tree`)).json();
     const bl = $("#baseline-list");
     bl.innerHTML = "";
     if (!tree.tree.length) bl.innerHTML = '<div class="empty">暂无文件</div>';
@@ -349,14 +1014,29 @@ async function loadSidebar() {
       bl.appendChild(d);
     });
   } catch (e) {
-    console.error("load sidebar failed", e);
+    console.error("load baseline failed", e);
   }
 }
 
+// ---------- 标签页切换 ----------
+function switchTab(tab) {
+  document.querySelectorAll(".tab").forEach(t => {
+    t.classList.toggle("active", t.dataset.tab === tab);
+  });
+  document.querySelectorAll(".panel").forEach(p => {
+    p.classList.toggle("active", p.id === `panel-${tab}`);
+  });
+}
+
+document.querySelectorAll(".tab").forEach(t => {
+  t.addEventListener("click", () => switchTab(t.dataset.tab));
+});
+
 // ---------- 历史加载 ----------
 async function loadHistory() {
+  if (!projectId || !conversationId) return;
   try {
-    const data = await (await fetch(`/chat/${conversationId}/history`)).json();
+    const data = await (await fetch(`/projects/${projectId}/chat/${conversationId}/history`)).json();
     const box = $("#messages");
     box.innerHTML = "";
     data.messages.forEach(m => {
@@ -395,7 +1075,7 @@ $("#c-deny").addEventListener("click", async () => {
 
 async function sendRespond(questionId, decision, reason) {
   try {
-    const resp = await fetch(`/chat/${conversationId}/respond`, {
+    const resp = await fetch(`/projects/${projectId}/chat/${conversationId}/respond`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question_id: questionId, decision, reason }),
@@ -462,7 +1142,7 @@ $("#ask-submit").addEventListener("click", async () => {
   });
   hideAsk();
   try {
-    const resp = await fetch(`/chat/${conversationId}/respond`, {
+    const resp = await fetch(`/projects/${projectId}/chat/${conversationId}/respond`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question_id: qid, decision: "approve", edited_args: answers }),
@@ -484,7 +1164,7 @@ async function sendMessage(text) {
   let toolDiv = null;
 
   try {
-    const resp = await fetch(`/chat/${conversationId}/messages`, {
+    const resp = await fetch(`/projects/${projectId}/chat/${conversationId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
@@ -524,6 +1204,8 @@ async function sendMessage(text) {
     busy = false;
     $("#send").disabled = false;
     $("#input").focus();
+    // 消息发送后实时刷新会话列表（标题/条数/排序更新）
+    loadConversations();
   }
 }
 
@@ -596,10 +1278,32 @@ $("#input").addEventListener("keydown", e => {
 });
 
 // ---------- 初始化 ----------
-loadConfig();
-loadSidebar();
-loadHistory();
-$("#input").focus();
+async function init() {
+  loadConfig();
+  loadPapers();
+  // 加载项目列表，默认选中第一个项目
+  try {
+    const data = await (await fetch("/projects")).json();
+    if (data.projects.length) {
+      projectId = data.projects[0].id;
+      await loadProjects();
+      await loadConversations();
+      await loadBaseline();
+      // 默认选中第一个会话（若有）
+      const convData = await (await fetch(`/projects/${projectId}/conversations`)).json();
+      if (convData.conversations.length) {
+        await switchConversation(convData.conversations[0].id);
+      }
+    } else {
+      $("#projects-list").innerHTML = '<div class="empty">暂无项目</div>';
+      $("#conversations-list").innerHTML = '<div class="empty">请先新建项目</div>';
+    }
+  } catch (e) {
+    console.error("init failed", e);
+  }
+  $("#input").focus();
+}
+init();
 </script>
 </body>
 </html>

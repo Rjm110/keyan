@@ -126,7 +126,7 @@ def make_fs_tools(workspace_root: Path, backups_dir: Path) -> list:
         backup = _backup(backups, root, file_path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
-        backup_text = f" Backup: {backup.relative_to(root)}." if backup else ""
+        backup_text = f" Backup: {backup.relative_to(backups)}." if backup else ""
         return f"wrote {path}.{backup_text}"
 
     @tool
@@ -141,7 +141,7 @@ def make_fs_tools(workspace_root: Path, backups_dir: Path) -> list:
             raise ValueError(f"expected exactly one match, found {count}")
         backup = _backup(backups, root, file_path)
         file_path.write_text(content.replace(old_text, new_text), encoding="utf-8")
-        backup_text = f" Backup: {backup.relative_to(root)}." if backup else ""
+        backup_text = f" Backup: {backup.relative_to(backups)}." if backup else ""
         return f"edited {path}.{backup_text}"
 
     return [list_files, read_file, search_files, write_file, replace_in_file]

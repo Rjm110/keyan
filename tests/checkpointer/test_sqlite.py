@@ -82,6 +82,52 @@ class TestSQLiteCheckpointer:
             assert data.messages == []
             assert data.extra == {"key": "value"}
 
+    async def test_delete_thread_removes_all_data(self, db_path):
+        """delete_thread removes messages, extra, pending, answers and runs."""
+        from cubepi.hitl.types import ConfirmRequest, HitlRequest
+
+        async with SQLiteCheckpointer(db_path) as cp:
+            await cp.append(
+                "thread-1", [UserMessage(content=[TextContent(text="hello")])]
+            )
+            await cp.save_extra("thread-1", {"index": 42})
+            req = HitlRequest(
+                question_id="q-1",
+                thread_id="thread-1",
+                payload=ConfirmRequest(prompt="hi"),
+                created_at=0.0,
+            )
+            await cp.save_pending_request("thread-1", req)
+            await cp.save_hitl_answer("thread-1", "q-1", {"decision": "approve"})
+            await cp.claim_run("thread-1", "run-1")
+
+            await cp.delete_thread("thread-1")
+
+            assert await cp.load("thread-1") is None
+            assert await cp.load_pending_request("thread-1") is None
+            assert await cp.load_hitl_answer("thread-1", "q-1") is None
+            threads = await cp.list_threads()
+            assert all(t.thread_id != "thread-1" for t in threads)
+
+    async def test_delete_thread_keeps_other_threads(self, db_path):
+        """delete_thread only removes the target thread."""
+        async with SQLiteCheckpointer(db_path) as cp:
+            await cp.append("thread-1", [UserMessage(content=[TextContent(text="t1")])])
+            await cp.append("thread-2", [UserMessage(content=[TextContent(text="t2")])])
+
+            await cp.delete_thread("thread-1")
+
+            assert await cp.load("thread-1") is None
+            data = await cp.load("thread-2")
+            assert data is not None
+            assert data.messages[0].content[0].text == "t2"
+
+    async def test_delete_thread_idempotent(self, db_path):
+        """Deleting a non-existent thread should not raise."""
+        async with SQLiteCheckpointer(db_path) as cp:
+            await cp.delete_thread("ghost-thread")
+            await cp.delete_thread("ghost-thread")
+
     async def test_round_trip_tool_result_message(self, db_path):
         """ToolResultMessage round-trips through the tool_result deserializer branch."""
         async with SQLiteCheckpointer(db_path) as cp:

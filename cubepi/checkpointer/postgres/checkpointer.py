@@ -14,7 +14,7 @@ import asyncpg
 import msgpack
 from pydantic import TypeAdapter
 
-from cubepi.checkpointer.base import CheckpointData
+from cubepi.checkpointer.base import CheckpointData, ThreadSummary
 from cubepi.checkpointer.exceptions import (
     CheckpointCorruptionError,
     RunAlreadyClaimedError,
@@ -515,6 +515,41 @@ class PostgresCheckpointer:
                 "    updated_at = now()",
                 thread_id,
                 json.dumps(extra),
+            )
+
+    async def list_threads(self) -> list[ThreadSummary]:
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT t.thread_id, "
+                "       COALESCE(t.extra->>'title', '') AS title, "
+                "       (SELECT COUNT(*) FROM cubepi_messages m "
+                "        WHERE m.thread_id = t.thread_id) AS message_count, "
+                "       COALESCE(EXTRACT(EPOCH FROM t.updated_at), 0) AS updated_at "
+                "FROM cubepi_threads t "
+                "ORDER BY updated_at DESC"
+            )
+            return [
+                ThreadSummary(
+                    thread_id=r["thread_id"],
+                    title=r["title"],
+                    message_count=r["message_count"],
+                    updated_at=float(r["updated_at"]),
+                )
+                for r in rows
+            ]
+
+    async def delete_thread(self, thread_id: str) -> None:
+        """删除一个会话（thread）及其全部数据。
+
+        cubepi_messages / cubepi_runs / cubepi_hitl_answers 均通过
+        ON DELETE CASCADE 外键随 cubepi_threads 行级联删除。幂等。
+        """
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM cubepi_threads WHERE thread_id = $1",
+                thread_id,
             )
 
     async def save_pending_request(

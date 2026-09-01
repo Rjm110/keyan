@@ -44,8 +44,10 @@ def _make_faux_model(responses):
 
 async def test_approve_executes_tool(app_config: AppConfig):
     """模型发起 replace_in_file → HITL 确认 approve → 工具执行。"""
-    # 准备 baseline 文件
-    (app_config.baseline_dir / "model.py").write_text("x = 1\nprint(x)\n")
+    # 准备项目目录文件
+    project_dir = app_config.projects_dir / "default"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "model.py").write_text("x = 1\nprint(x)\n")
 
     model = _make_faux_model(
         [
@@ -55,7 +57,7 @@ async def test_approve_executes_tool(app_config: AppConfig):
                     faux_tool_call(
                         "replace_in_file",
                         {
-                            "path": "baseline/model.py",
+                            "path": "model.py",
                             "old_text": "x = 1",
                             "new_text": "x = 2",
                         },
@@ -74,6 +76,7 @@ async def test_approve_executes_tool(app_config: AppConfig):
             config=app_config,
             checkpointer=cp,
             thread_id="user:test-approve",
+            project_dir=project_dir,
             run_id="run-approve",
         )
         channel = agent.channel
@@ -91,7 +94,7 @@ async def test_approve_executes_tool(app_config: AppConfig):
         await task
 
         # 工具已执行
-        content = (app_config.baseline_dir / "model.py").read_text()
+        content = (project_dir / "model.py").read_text()
         assert "x = 2" in content
         # 备份存在
         assert len(list(app_config.backups_dir.rglob("model.py"))) == 1
@@ -99,7 +102,9 @@ async def test_approve_executes_tool(app_config: AppConfig):
 
 async def test_deny_blocks_tool(app_config: AppConfig):
     """HITL 确认 deny → 工具被阻止，文件不变。"""
-    (app_config.baseline_dir / "model.py").write_text("x = 1\nprint(x)\n")
+    project_dir = app_config.projects_dir / "default"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "model.py").write_text("x = 1\nprint(x)\n")
 
     model = _make_faux_model(
         [
@@ -109,7 +114,7 @@ async def test_deny_blocks_tool(app_config: AppConfig):
                     faux_tool_call(
                         "replace_in_file",
                         {
-                            "path": "baseline/model.py",
+                            "path": "model.py",
                             "old_text": "x = 1",
                             "new_text": "x = 2",
                         },
@@ -128,6 +133,7 @@ async def test_deny_blocks_tool(app_config: AppConfig):
             config=app_config,
             checkpointer=cp,
             thread_id="user:test-deny",
+            project_dir=project_dir,
             run_id="run-deny",
         )
         channel = agent.channel
@@ -145,16 +151,16 @@ async def test_deny_blocks_tool(app_config: AppConfig):
         await task
 
         # 文件未被修改
-        content = (app_config.baseline_dir / "model.py").read_text()
+        content = (project_dir / "model.py").read_text()
         assert "x = 1" in content
         assert "x = 2" not in content
 
 
 async def test_full_flow_read_then_edit(app_config: AppConfig):
     """完整流程：模型先读文件，再发起修改，确认后完成。"""
-    (app_config.baseline_dir / "model.py").write_text(
-        "def predict(x):\n    return x * 2\n"
-    )
+    project_dir = app_config.projects_dir / "default"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "model.py").write_text("def predict(x):\n    return x * 2\n")
 
     model = _make_faux_model(
         [
@@ -163,7 +169,7 @@ async def test_full_flow_read_then_edit(app_config: AppConfig):
                     faux_text("Let me read the file first."),
                     faux_tool_call(
                         "read_file",
-                        {"path": "baseline/model.py"},
+                        {"path": "model.py"},
                         id="tc-1",
                     ),
                 ],
@@ -175,7 +181,7 @@ async def test_full_flow_read_then_edit(app_config: AppConfig):
                     faux_tool_call(
                         "replace_in_file",
                         {
-                            "path": "baseline/model.py",
+                            "path": "model.py",
                             "old_text": "return x * 2",
                             "new_text": "return x * 3",
                         },
@@ -194,6 +200,7 @@ async def test_full_flow_read_then_edit(app_config: AppConfig):
             config=app_config,
             checkpointer=cp,
             thread_id="user:test-full",
+            project_dir=project_dir,
             run_id="run-full",
         )
         channel = agent.channel
@@ -210,19 +217,22 @@ async def test_full_flow_read_then_edit(app_config: AppConfig):
         await agent.prompt("把 predict 的倍数改成 3", run_id="run-full")
         await task
 
-        content = (app_config.baseline_dir / "model.py").read_text()
+        content = (project_dir / "model.py").read_text()
         assert "return x * 3" in content
 
 
 async def test_ask_user_tool_available(app_config: AppConfig):
     """ask_user 工具在工具列表中（模型可主动提问）。"""
     model = _make_faux_model([faux_assistant_message("ok")])
+    project_dir = app_config.projects_dir / "default"
+    project_dir.mkdir(parents=True, exist_ok=True)
     async with SQLiteCheckpointer(str(app_config.db_path)) as cp:
         agent = build_agent(
             model=model,
             config=app_config,
             checkpointer=cp,
             thread_id="user:test-ask",
+            project_dir=project_dir,
             run_id="run-ask",
         )
         names = {t.name for t in agent.state.tools}

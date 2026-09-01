@@ -1,0 +1,4 @@
+推送代码到我的github
+git add -A
+git commit -m "你的提交说明"
+git push

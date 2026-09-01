@@ -16,11 +16,37 @@ class CheckpointData:
     parent_thread_id: str | None = None
 
 
+@dataclass
+class ThreadSummary:
+    """会话（thread）摘要，供会话列表展示。"""
+
+    thread_id: str
+    title: str = ""
+    message_count: int = 0
+    updated_at: float = 0.0
+
+
 @runtime_checkable
 class Checkpointer(Protocol):
     async def load(self, thread_id: str) -> CheckpointData | None: ...
     async def append(self, thread_id: str, messages: list[Message]) -> None: ...
     async def save_extra(self, thread_id: str, extra: JsonObject) -> None: ...
+
+    async def list_threads(self) -> list[ThreadSummary]:
+        """列出所有会话（thread）摘要，按更新时间倒序。
+
+        返回 [{thread_id, title, message_count, updated_at}]。
+        title 来自 thread_extra 的 extra_json["title"]；
+        updated_at 取该 thread 最新一条消息的 created_at（无消息时为 0）。
+        """
+        ...
+
+    async def delete_thread(self, thread_id: str) -> None:
+        """删除一个会话（thread）及其全部数据（消息、extra、pending、answers、runs）。
+
+        幂等：删除不存在的 thread 不报错。
+        """
+        ...
 
     async def save_pending_request(
         self,

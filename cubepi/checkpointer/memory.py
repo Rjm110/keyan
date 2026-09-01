@@ -6,7 +6,7 @@ import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from cubepi.checkpointer.base import CheckpointData
+from cubepi.checkpointer.base import CheckpointData, ThreadSummary
 from cubepi.checkpointer.exceptions import (
     RunAlreadyClaimedError,
     RunAlreadyCompletedError,
@@ -66,6 +66,33 @@ class MemoryCheckpointer:
             if thread_id not in self._store:
                 self._store[thread_id] = CheckpointData()
             self._store[thread_id].extra.update(extra)
+
+    async def list_threads(self) -> list[ThreadSummary]:
+        async with self._lock:
+            summaries: list[ThreadSummary] = []
+            for thread_id, data in self._store.items():
+                title = str(data.extra.get("title", ""))
+                summaries.append(
+                    ThreadSummary(
+                        thread_id=thread_id,
+                        title=title,
+                        message_count=len(data.messages),
+                        updated_at=0.0,
+                    )
+                )
+            summaries.sort(key=lambda s: s.updated_at, reverse=True)
+            return summaries
+
+    async def delete_thread(self, thread_id: str) -> None:
+        """删除一个会话（thread）及其全部数据。幂等。"""
+        async with self._lock:
+            self._store.pop(thread_id, None)
+            self._pending.pop(thread_id, None)
+            self._pending_run_id.pop(thread_id, None)
+            self._runs.pop(thread_id, None)
+            # 清理该 thread 的所有 HITL answers
+            for key in [k for k in self._hitl_answers if k[0] == thread_id]:
+                del self._hitl_answers[key]
 
     async def save_pending_request(
         self,

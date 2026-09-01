@@ -18,7 +18,7 @@ import msgpack
 import pymysql
 from pydantic import TypeAdapter
 
-from cubepi.checkpointer.base import CheckpointData
+from cubepi.checkpointer.base import CheckpointData, ThreadSummary
 from cubepi.checkpointer.exceptions import (
     CheckpointCorruptionError,
     RunAlreadyClaimedError,
@@ -640,6 +640,58 @@ class MySQLCheckpointer:
             except BaseException:  # pragma: no cover - defensive txn rollback
                 await conn.rollback()
                 raise
+
+    async def list_threads(self) -> list[ThreadSummary]:
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT t.thread_id, "
+                    "       COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.extra, '$.title')), '') "
+                    "       AS title, "
+                    "       (SELECT COUNT(*) FROM cubepi_messages m "
+                    "        WHERE m.thread_id = t.thread_id) AS message_count, "
+                    "       COALESCE(UNIX_TIMESTAMP(t.updated_at), 0) AS updated_at "
+                    "FROM cubepi_threads t "
+                    "ORDER BY updated_at DESC"
+                )
+                rows = await cur.fetchall()
+                return [
+                    ThreadSummary(
+                        thread_id=r[0],
+                        title=r[1],
+                        message_count=r[2],
+                        updated_at=float(r[3]),
+                    )
+                    for r in rows
+                ]
+
+    async def delete_thread(self, thread_id: str) -> None:
+        """删除一个会话（thread）及其全部数据。
+
+        cubepi_messages 通过 FK 级联；cubepi_runs / cubepi_hitl_answers
+        是分区表（MySQL 禁止分区表 FK），需手动清理。幂等。
+        """
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            await conn.begin()
+            try:
+                async with conn.cursor() as cur:
+                    for table in (
+                        "cubepi_messages",
+                        "cubepi_runs",
+                        "cubepi_hitl_answers",
+                        "cubepi_threads",
+                    ):
+                        await cur.execute(
+                            f"DELETE FROM {table} WHERE thread_id = %s",
+                            (thread_id,),
+                        )
+            except BaseException:
+                await conn.rollback()
+                raise
+            else:
+                await conn.commit()
 
     async def save_pending_request(
         self,

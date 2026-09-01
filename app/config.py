@@ -11,8 +11,9 @@ Provider 选择（与 examples/_provider.py 一致）：
 
 from __future__ import annotations
 
+import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 
 from cubepi.providers.base import BoundModel
@@ -60,19 +61,25 @@ class AppConfig:
 
     # 论文目录：用户把论文 PDF 放到这里
     papers_dir: Path
-    # baseline 代码目录：agent 修改的目标项目
+    # baseline 代码目录：agent 修改的目标项目（旧版单一目录，迁移后为 projects/default）
     baseline_dir: Path
+    # 项目代码根目录：workspace/projects/<id>/
+    projects_dir: Path
+    # 项目元数据文件（workspace/projects.json）
+    projects_json_path: Path
     # 会话数据库路径
     db_path: Path
     # 备份目录（写入前自动备份）
     backups_dir: Path
     # 允许 agent 访问的根目录（路径沙箱）
     workspace_root: Path
+    # 运行时配置持久化文件（workspace/config.json）
+    config_path: Path
 
 
 @dataclass
 class RuntimeConfig:
-    """前端提交的运行时配置（内存存储，不持久化）。"""
+    """前端提交的运行时配置（内存存储，可持久化到 JSON 文件）。"""
 
     provider: str | None = None
     api_key: str | None = None
@@ -81,6 +88,42 @@ class RuntimeConfig:
 
     def is_configured(self) -> bool:
         return bool(self.provider and self.api_key)
+
+    def to_dict(self) -> dict:
+        """序列化为 JSON 可存储的 dict（跳过 None 字段）。"""
+        return {
+            f.name: getattr(self, f.name)
+            for f in fields(self)
+            if getattr(self, f.name) is not None
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> RuntimeConfig:
+        """从 dict 反序列化（忽略未知字段，容错损坏数据）。"""
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
+
+    def save_to_file(self, path: Path) -> None:
+        """写入 JSON 文件，权限设为 600（保护 API key）。"""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(
+            json.dumps(self.to_dict(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        os.chmod(tmp, 0o600)
+        tmp.replace(path)
+
+    @classmethod
+    def load_from_file(cls, path: Path) -> RuntimeConfig:
+        """从 JSON 文件加载；文件不存在或损坏时返回空配置（优雅降级）。"""
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return cls()
+        if not isinstance(data, dict):
+            return cls()
+        return cls.from_dict(data)
 
 
 # 全局运行时配置（单 worker 共享）
@@ -95,11 +138,26 @@ def get_runtime_config() -> RuntimeConfig:
 def set_runtime_config(
     provider: str, api_key: str, model: str | None = None, base_url: str | None = None
 ) -> None:
-    """保存前端提交的运行时配置。"""
+    """保存前端提交的运行时配置（仅内存，持久化由 persist_runtime_config 负责）。"""
     _runtime.provider = provider
     _runtime.api_key = api_key
     _runtime.model = model or None
     _runtime.base_url = base_url or None
+
+
+def persist_runtime_config() -> None:
+    """将当前运行时配置写入磁盘（workspace/config.json）。"""
+    _runtime.save_to_file(load_config().config_path)
+
+
+def load_runtime_config_from_disk() -> None:
+    """启动时从磁盘加载运行时配置到内存（文件不存在则保持空配置）。"""
+    cfg = load_config()
+    loaded = RuntimeConfig.load_from_file(cfg.config_path)
+    _runtime.provider = loaded.provider
+    _runtime.api_key = loaded.api_key
+    _runtime.model = loaded.model
+    _runtime.base_url = loaded.base_url
 
 
 def _resolve_dir(name: str, default: str) -> Path:
@@ -115,6 +173,7 @@ def load_config() -> AppConfig:
     papers_dir = _resolve_dir("CUBEPI_PAPERS_DIR", str(base / "papers"))
     baseline_dir = _resolve_dir("CUBEPI_BASELINE_DIR", str(base / "baseline"))
     backups_dir = _resolve_dir("CUBEPI_BACKUPS_DIR", str(base / "backups"))
+    projects_dir = _resolve_dir("CUBEPI_PROJECTS_DIR", str(base / "projects"))
     db_path = (
         Path(os.environ.get("CUBEPI_DB_PATH", str(base / "sessions.db")))
         .expanduser()
@@ -124,9 +183,12 @@ def load_config() -> AppConfig:
     return AppConfig(
         papers_dir=papers_dir,
         baseline_dir=baseline_dir,
+        projects_dir=projects_dir,
+        projects_json_path=projects_dir / "projects.json",
         db_path=db_path,
         backups_dir=backups_dir,
         workspace_root=base,
+        config_path=base / "config.json",
     )
 
 
