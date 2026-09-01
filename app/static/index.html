@@ -33,59 +33,61 @@
   }
   .sidebar .empty { padding: 6px 16px; font-size: 12px; color: var(--muted); }
 
-  /* 项目区块：紧凑列表，独立滚动 */
-  .proj-section {
-    flex-shrink: 0; max-height: 40%; display: flex; flex-direction: column;
-    border-bottom: 1px solid var(--border);
+  /* 侧栏头部：标题 + 添加项目按钮（固定） */
+  .sidebar-header { flex-shrink: 0; border-bottom: 1px solid var(--border); }
+  .sidebar-header h2 { display: inline-block; }
+  .sidebar-header button {
+    float: right; margin: 12px 12px 0 0; background: var(--accent); color: #fff;
+    border: none; border-radius: 8px; padding: 6px 10px; font-size: 12px;
+    cursor: pointer; font-weight: 600;
   }
-  .proj-header { padding: 0 16px 8px; display: flex; gap: 6px; }
-  .proj-header button {
-    flex: 1; background: var(--accent); color: #fff; border: none; border-radius: 8px;
-    padding: 7px 0; font-size: 12px; cursor: pointer; font-weight: 600;
+  .sidebar-header button:hover { background: #5f97ff; }
+
+  /* 项目树：整体滚动 */
+  #project-tree { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 8px; }
+  #project-tree::-webkit-scrollbar { width: 6px; }
+  #project-tree::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* 项目分组 */
+  .proj-group { border-bottom: 1px solid var(--border); }
+  .proj-group.active { background: #1d2130; }
+  .proj-head {
+    display: flex; align-items: center; gap: 6px; padding: 8px 12px 4px;
+    cursor: pointer; user-select: none;
   }
-  .proj-header button:hover { background: #5f97ff; }
-  #projects-list { overflow-y: auto; padding-bottom: 8px; }
-  #projects-list::-webkit-scrollbar { width: 6px; }
-  #projects-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-  .proj-item {
-    padding: 7px 16px; font-size: 13px; color: var(--text); cursor: pointer;
-    display: flex; align-items: center; gap: 8px; border-left: 3px solid transparent;
-    position: relative;
+  .proj-head:hover { background: #1d2130; }
+  .proj-head .proj-arrow {
+    font-size: 10px; color: var(--muted); width: 14px; flex-shrink: 0;
+    transition: transform 0.15s;
   }
-  .proj-item:hover { background: #1d2130; }
-  .proj-item.active { background: #1d2130; border-left-color: var(--accent); }
-  .proj-item .proj-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .proj-item .proj-count { font-size: 11px; color: var(--muted); flex-shrink: 0; }
-  .proj-item .proj-actions { display: none; flex-shrink: 0; gap: 2px; }
-  .proj-item:hover .proj-actions { display: flex; }
-  .proj-item .proj-actions button {
+  .proj-head .proj-arrow.open { transform: rotate(90deg); }
+  .proj-head .proj-name {
+    flex: 1; font-size: 13px; font-weight: 600; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .proj-head .proj-count { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+  .proj-head .proj-actions { display: none; flex-shrink: 0; gap: 2px; }
+  .proj-head:hover .proj-actions { display: flex; }
+  .proj-head .proj-actions button {
     width: 20px; height: 20px; border: none; background: transparent; color: var(--muted);
     font-size: 12px; line-height: 1; cursor: pointer; border-radius: 4px; padding: 0;
   }
-  .proj-item .proj-actions button:hover { background: var(--accent-dim); color: #fff; }
-  .proj-item .proj-actions button.del:hover { background: var(--err); color: #fff; }
+  .proj-head .proj-actions button:hover { background: var(--accent-dim); color: #fff; }
+  .proj-head .proj-actions button.del:hover { background: var(--err); color: #fff; }
 
-  /* 会话区块：独立滚动，占满侧栏剩余空间 */
-  .conv-section {
-    flex: 1; min-height: 0; display: flex; flex-direction: column;
-    overflow-y: auto;
+  /* 项目路径：可见，可点击复制 */
+  .proj-path {
+    font-size: 11px; color: var(--muted); padding: 0 12px 6px 32px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    cursor: pointer; user-select: none;
   }
-  .conv-section::-webkit-scrollbar { width: 6px; }
-  .conv-section::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-  .conv-header { padding: 0 16px 8px; }
-  .conv-header button {
-    width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 8px;
-    padding: 8px 0; font-size: 13px; cursor: pointer; font-weight: 600;
-  }
-  .conv-header button:hover { background: #5f97ff; }
-  /* 会话列表 */
-  #conversations-list {
-    padding-bottom: 8px; flex-shrink: 0;
-  }
-  #conversations-list::-webkit-scrollbar { width: 6px; }
-  #conversations-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .proj-path:hover { color: var(--accent); text-decoration: underline; }
+
+  /* 项目下会话列表 */
+  .proj-convs { padding-bottom: 6px; }
+  .proj-convs .empty { padding: 2px 12px 6px 32px; font-size: 11px; }
   .conv-item {
-    padding: 8px 16px; font-size: 13px; color: var(--text); cursor: pointer;
+    padding: 6px 12px 6px 32px; font-size: 13px; color: var(--text); cursor: pointer;
     display: flex; align-items: center; gap: 8px; border-left: 3px solid transparent;
     position: relative;
   }
@@ -262,22 +264,13 @@
 </head>
 <body>
 
-<!-- 侧栏：项目列表 + 当前项目会话列表 -->
+<!-- 侧栏：项目分组树（项目 + 路径 + 嵌套会话） -->
 <aside class="sidebar">
-  <div class="proj-section">
+  <div class="sidebar-header">
     <h2>📁 项目</h2>
-    <div class="proj-header">
-      <button id="proj-new">＋ 添加项目</button>
-    </div>
-    <div id="projects-list"><div class="empty">加载中…</div></div>
+    <button id="proj-new">＋ 添加项目</button>
   </div>
-  <div class="conv-section">
-    <h2>💬 会话</h2>
-    <div class="conv-header">
-      <button id="conv-new">＋ 新建会话</button>
-    </div>
-    <div id="conversations-list"><div class="empty">加载中…</div></div>
-  </div>
+  <div id="project-tree"><div class="empty">加载中…</div></div>
 </aside>
 
 <!-- 主区域 -->
@@ -721,25 +714,57 @@ $("#browse-ok").addEventListener("click", () => {
 });
 
 // ---------- 项目管理 ----------
+// 展开状态：{projectId: true/false}
+let expandedProjects = {};
+
 async function loadProjects() {
   try {
     const data = await (await fetch("/projects")).json();
-    const list = $("#projects-list");
-    list.innerHTML = "";
+    const tree = $("#project-tree");
+    tree.innerHTML = "";
     if (!data.projects.length) {
-      list.innerHTML = '<div class="empty">暂无项目</div>';
+      tree.innerHTML = '<div class="empty">暂无项目</div>';
       return;
     }
+    // 拉取全部会话，按 project_id 分组
+    let convsByProject = {};
+    try {
+      const convData = await (await fetch("/conversations")).json();
+      convsByProject = {};
+      (convData.conversations || []).forEach(c => {
+        (convsByProject[c.project_id] = convsByProject[c.project_id] || []).push(c);
+      });
+    } catch (e) {
+      console.error("load all conversations failed", e);
+    }
     data.projects.forEach(p => {
-      const d = document.createElement("div");
-      d.className = "proj-item" + (p.id === projectId ? " active" : "");
-      d.dataset.id = p.id;
+      const group = document.createElement("div");
+      group.className = "proj-group" + (p.id === projectId ? " active" : "");
+      group.dataset.id = p.id;
+
+      // 项目头：箭头 + 名称 + 条数 + 操作（重命名/删除）
+      const head = document.createElement("div");
+      head.className = "proj-head";
+      const arrow = document.createElement("span");
+      arrow.className = "proj-arrow" + (expandedProjects[p.id] !== false ? " open" : "");
+      arrow.textContent = "▶";
       const name = document.createElement("span");
       name.className = "proj-name";
       name.textContent = p.name;
       name.title = p.path || "";
+      const convs = convsByProject[p.id] || [];
+      const count = document.createElement("span");
+      count.className = "proj-count";
+      count.textContent = convs.length ? `${convs.length} 条` : "";
       const actions = document.createElement("span");
       actions.className = "proj-actions";
+      const addBtn = document.createElement("button");
+      addBtn.title = "添加会话";
+      addBtn.textContent = "＋";
+      addBtn.addEventListener("click", e => {
+        e.stopPropagation();
+        newConversation(p.id);
+      });
       const renameBtn = document.createElement("button");
       renameBtn.title = "重命名";
       renameBtn.textContent = "✎";
@@ -755,16 +780,120 @@ async function loadProjects() {
         e.stopPropagation();
         deleteProject(p.id, p.name);
       });
+      actions.appendChild(addBtn);
       actions.appendChild(renameBtn);
       actions.appendChild(delBtn);
-      d.appendChild(name);
-      d.appendChild(actions);
-      d.addEventListener("click", () => switchProject(p.id));
-      list.appendChild(d);
+      head.appendChild(arrow);
+      head.appendChild(name);
+      head.appendChild(count);
+      head.appendChild(actions);
+      head.addEventListener("click", () => toggleProject(p.id));
+      group.appendChild(head);
+
+      // 项目路径：可见，点击复制
+      if (p.path) {
+        const path = document.createElement("div");
+        path.className = "proj-path";
+        path.textContent = p.path;
+        path.title = "点击复制路径";
+        path.addEventListener("click", e => {
+          e.stopPropagation();
+          copyPath(p.path);
+        });
+        group.appendChild(path);
+      }
+
+      // 会话列表（嵌套在项目下）
+      const convsBox = document.createElement("div");
+      convsBox.className = "proj-convs";
+      if (!convs.length) {
+        convsBox.innerHTML = '<div class="empty">暂无会话</div>';
+      } else {
+        convs.forEach(c => {
+          const d = document.createElement("div");
+          d.className = "conv-item" + (c.id === conversationId ? " active" : "");
+          d.dataset.id = c.id;
+          const title = document.createElement("span");
+          title.className = "conv-title";
+          title.textContent = c.title || "新会话";
+          const cnt = document.createElement("span");
+          cnt.className = "conv-count";
+          cnt.textContent = c.message_count ? `${c.message_count} 条` : "";
+          const del = document.createElement("button");
+          del.className = "conv-del";
+          del.title = "删除会话";
+          del.textContent = "✕";
+          del.addEventListener("click", e => {
+            e.stopPropagation();
+            deleteConversation(p.id, c.id);
+          });
+          d.appendChild(title);
+          d.appendChild(cnt);
+          d.appendChild(del);
+          d.addEventListener("click", () => switchConversation(p.id, c.id));
+          convsBox.appendChild(d);
+        });
+      }
+      group.appendChild(convsBox);
+
+      // 折叠状态：只展开当前项目（默认）或用户手动展开的
+      const isOpen = expandedProjects[p.id] !== undefined
+        ? expandedProjects[p.id]
+        : (p.id === projectId);
+      convsBox.style.display = isOpen ? "" : "none";
+      arrow.classList.toggle("open", isOpen);
+
+      tree.appendChild(group);
     });
   } catch (e) {
     console.error("load projects failed", e);
   }
+}
+
+function toggleProject(id) {
+  const cur = expandedProjects[id] !== undefined ? expandedProjects[id] : (id === projectId);
+  expandedProjects[id] = !cur;
+  // 若展开的是非当前项目，同时切换当前项目
+  if (!cur && id !== projectId) {
+    switchProject(id);
+    return;
+  }
+  // 更新箭头与列表显示
+  const group = document.querySelector(`.proj-group[data-id="${id}"]`);
+  if (group) {
+    const arrow = group.querySelector(".proj-arrow");
+    const convs = group.querySelector(".proj-convs");
+    arrow.classList.toggle("open", expandedProjects[id]);
+    convs.style.display = expandedProjects[id] ? "" : "none";
+  }
+}
+
+async function copyPath(path) {
+  try {
+    await navigator.clipboard.writeText(path);
+    showToast(`已复制：${path}`);
+  } catch (e) {
+    showToast("复制失败，请手动复制");
+  }
+}
+
+// 轻量 toast 提示
+let toastTimer = null;
+function showToast(msg) {
+  let el = $("#toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast";
+    el.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);" +
+      "background:#1d2130;color:#fff;padding:8px 16px;border-radius:8px;font-size:13px;" +
+      "z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.4);max-width:80%;" +
+      "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.display = "block";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.style.display = "none"; }, 2000);
 }
 
 async function switchProject(id) {
@@ -772,13 +901,21 @@ async function switchProject(id) {
   if (id === projectId) return;
   projectId = id;
   conversationId = null;
-  // 高亮当前项目
-  document.querySelectorAll(".proj-item").forEach(el => {
-    el.classList.toggle("active", el.dataset.id === id);
+  // 展开当前项目，折叠其他
+  expandedProjects[id] = true;
+  document.querySelectorAll(".proj-group").forEach(el => {
+    const gid = el.dataset.id;
+    el.classList.toggle("active", gid === id);
+    if (gid !== id) expandedProjects[gid] = false;
+    const arrow = el.querySelector(".proj-arrow");
+    const convs = el.querySelector(".proj-convs");
+    if (arrow && convs) {
+      arrow.classList.toggle("open", gid === id);
+      convs.style.display = gid === id ? "" : "none";
+    }
   });
-  // 清空消息区 + 刷新会话列表 + 代码面板
+  // 清空消息区 + 刷新代码面板
   $("#messages").innerHTML = "";
-  await loadConversations();
   await loadBaseline();
   $("#input").focus();
 }
@@ -867,46 +1004,9 @@ async function deleteProject(id, name) {
 $("#proj-new").addEventListener("click", newProject);
 
 // ---------- 会话管理 ----------
-async function loadConversations() {
-  if (!projectId) return;
-  try {
-    const data = await (await fetch(`/projects/${projectId}/conversations`)).json();
-    const list = $("#conversations-list");
-    list.innerHTML = "";
-    if (!data.conversations.length) {
-      list.innerHTML = '<div class="empty">暂无会话，点击上方新建</div>';
-      return;
-    }
-    data.conversations.forEach(c => {
-      const d = document.createElement("div");
-      d.className = "conv-item" + (c.id === conversationId ? " active" : "");
-      d.dataset.id = c.id;
-      const title = document.createElement("span");
-      title.className = "conv-title";
-      title.textContent = c.title || "新会话";
-      const count = document.createElement("span");
-      count.className = "conv-count";
-      count.textContent = c.message_count ? `${c.message_count} 条` : "";
-      const del = document.createElement("button");
-      del.className = "conv-del";
-      del.title = "删除会话";
-      del.textContent = "✕";
-      del.addEventListener("click", e => {
-        e.stopPropagation();
-        deleteConversation(c.id);
-      });
-      d.appendChild(title);
-      d.appendChild(count);
-      d.appendChild(del);
-      d.addEventListener("click", () => switchConversation(c.id));
-      list.appendChild(d);
-    });
-  } catch (e) {
-    console.error("load conversations failed", e);
-  }
-}
+// 会话列表已并入 loadProjects() 的树形渲染，这里只保留操作函数
 
-async function deleteConversation(id) {
+async function deleteConversation(projId, id) {
   if (busy) return;
   const ok = await showConfirmModal(
     `删除会话？`,
@@ -914,7 +1014,7 @@ async function deleteConversation(id) {
   );
   if (!ok) return;
   try {
-    const resp = await fetch(`/projects/${projectId}/conversations/${id}`, { method: "DELETE" });
+    const resp = await fetch(`/projects/${projId}/conversations/${id}`, { method: "DELETE" });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
       addMsg("assistant", `删除会话失败：${err.detail || resp.status}`, "error");
@@ -923,53 +1023,69 @@ async function deleteConversation(id) {
     // 若删除的是当前会话，切到第一个剩余会话（或新建）
     if (id === conversationId) {
       conversationId = null;  // 强制切换
-      const data = await (await fetch(`/projects/${projectId}/conversations`)).json();
+      const data = await (await fetch(`/projects/${projId}/conversations`)).json();
       if (data.conversations.length) {
-        await switchConversation(data.conversations[0].id);
+        await switchConversation(projId, data.conversations[0].id);
       } else {
-        await newConversation();
+        await newConversation(projId);
       }
     } else {
-      await loadConversations();
+      await loadProjects();
     }
   } catch (e) {
     addMsg("assistant", `删除会话失败：${e.message}`, "error");
   }
 }
 
-async function switchConversation(id) {
+async function switchConversation(projId, id) {
   if (busy) return;
+  // 若会话属于其他项目，先切换项目
+  if (projId !== projectId) {
+    projectId = projId;
+    conversationId = null;  // 重置，避免旧值干扰
+    expandedProjects[projId] = true;
+    $("#messages").innerHTML = "";
+    await loadBaseline();
+  }
   if (id === conversationId) return;
   conversationId = id;
   // 高亮当前项
   document.querySelectorAll(".conv-item").forEach(el => {
     el.classList.toggle("active", el.dataset.id === id);
   });
+  // 刷新树（更新项目高亮/展开状态）
+  await loadProjects();
   await loadHistory();
 }
 
-async function newConversation() {
+async function newConversation(projId) {
   if (busy) return;
-  if (!projectId) return;
+  const pid = projId || projectId;
+  if (!pid) return;
   try {
-    const resp = await fetch(`/projects/${projectId}/conversations`, { method: "POST" });
+    const resp = await fetch(`/projects/${pid}/conversations`, { method: "POST" });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
       addMsg("assistant", `新建会话失败：${err.detail || resp.status}`, "error");
       return;
     }
     const data = await resp.json();
+    // 若在非当前项目下新建，先切换项目
+    if (pid !== projectId) {
+      projectId = pid;
+      expandedProjects[pid] = true;
+      $("#messages").innerHTML = "";
+      await loadBaseline();
+    }
     conversationId = data.conversation.id;
-    // 清空消息区并刷新列表
+    // 清空消息区并刷新树
     $("#messages").innerHTML = "";
-    await loadConversations();
+    await loadProjects();
     $("#input").focus();
   } catch (e) {
     addMsg("assistant", `新建会话失败：${e.message}`, "error");
   }
 }
-
-$("#conv-new").addEventListener("click", newConversation);
 
 // ---------- 论文 / Baseline 加载 ----------
 async function loadPapers() {
@@ -1205,7 +1321,7 @@ async function sendMessage(text) {
     $("#send").disabled = false;
     $("#input").focus();
     // 消息发送后实时刷新会话列表（标题/条数/排序更新）
-    loadConversations();
+    loadProjects();
   }
 }
 
@@ -1287,16 +1403,14 @@ async function init() {
     if (data.projects.length) {
       projectId = data.projects[0].id;
       await loadProjects();
-      await loadConversations();
       await loadBaseline();
       // 默认选中第一个会话（若有）
       const convData = await (await fetch(`/projects/${projectId}/conversations`)).json();
       if (convData.conversations.length) {
-        await switchConversation(convData.conversations[0].id);
+        await switchConversation(projectId, convData.conversations[0].id);
       }
     } else {
-      $("#projects-list").innerHTML = '<div class="empty">暂无项目</div>';
-      $("#conversations-list").innerHTML = '<div class="empty">请先新建项目</div>';
+      $("#project-tree").innerHTML = '<div class="empty">暂无项目</div>';
     }
   } catch (e) {
     console.error("init failed", e);

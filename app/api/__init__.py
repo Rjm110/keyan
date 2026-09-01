@@ -55,6 +55,14 @@ def create_api_router(
     router.include_router(create_projects_router(project_service))
     router.include_router(create_config_router())
     router.include_router(create_workspace_router(workspace_service))
+
+    # 全量会话列表（不带 project_id 前缀），供前端按项目分组渲染
+    @router.get("/conversations")
+    async def list_all_conversations() -> dict:
+        """列出全部会话（按更新时间倒序，含 project_id 字段）。"""
+        conversations = await conversation_service.list_conversations()
+        return {"conversations": conversations}
+
     return router
 
 

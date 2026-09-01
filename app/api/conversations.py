@@ -1,6 +1,7 @@
 """会话路由：列表、创建、删除。
 
-- GET    /projects/{project_id}/conversations — 会话列表（按更新时间倒序）
+- GET    /conversations — 全部会话列表（按更新时间倒序，含 project_id）
+- GET    /projects/{project_id}/conversations — 项目下会话列表（按更新时间倒序）
 - POST   /projects/{project_id}/conversations — 新建会话（懒创建，仅生成 ID）
 - DELETE /projects/{project_id}/conversations/{conversation_id} — 删除会话（幂等）
 """
